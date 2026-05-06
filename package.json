@@ -1,0 +1,27 @@
+{
+  "name": "llm-inspector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace @llm-inspector/shared && concurrently -n backend,frontend -c green,yellow \"npm run dev --workspace @llm-inspector/backend\" \"npm run dev --workspace @llm-inspector/frontend\"",
+    "dev:backend": "npm run build --workspace @llm-inspector/shared && npm run dev --workspace @llm-inspector/backend",
+    "dev:frontend": "npm run build --workspace @llm-inspector/shared && npm run dev --workspace @llm-inspector/frontend",
+    "build": "npm run build --workspace @llm-inspector/shared && npm run build --workspace @llm-inspector/backend && npm run build --workspace @llm-inspector/frontend",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "bin": {
+    "llm-inspector": "./backend/dist/cli/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
