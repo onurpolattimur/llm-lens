@@ -14,6 +14,12 @@ export type NormalizedToolCall = {
   inputText?: string;
 };
 
+export type NormalizedReasoning = {
+  id: string;
+  content: string;
+  details?: unknown;
+};
+
 export type TokenUsage = {
   inputTokens?: number;
   outputTokens?: number;
@@ -27,6 +33,7 @@ export type LlmTrace = {
   inputMessages?: NormalizedMessage[];
   outputMessages?: NormalizedMessage[];
   toolCalls?: NormalizedToolCall[];
+  reasoning?: NormalizedReasoning[];
   usage?: TokenUsage;
 };
 

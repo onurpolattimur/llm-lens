@@ -339,6 +339,104 @@ h1 {
   max-width: 980px;
 }
 
+.trace-flow {
+  position: relative;
+  display: grid;
+  gap: var(--space-sm);
+  max-width: 1060px;
+}
+
+.trace-item {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  outline: none;
+}
+
+.trace-item:focus-visible {
+  border-color: var(--accent);
+}
+
+.trace-line {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 42px minmax(120px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-md);
+}
+
+.trace-arrow {
+  color: var(--accent);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-weight: 900;
+}
+
+.trace-response .trace-arrow {
+  color: var(--accent-2);
+}
+
+.trace-kind {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.trace-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-reasoning {
+  background: oklch(23% 0.018 104);
+}
+
+.trace-tool {
+  background: oklch(24% 0.03 72);
+  border-color: oklch(42% 0.055 72);
+}
+
+.trace-popover {
+  position: absolute;
+  z-index: 20;
+  left: 54px;
+  right: 16px;
+  top: calc(100% + 6px);
+  display: none;
+  max-height: min(460px, 58vh);
+  overflow: auto;
+  padding: var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: oklch(15% 0.014 120);
+  box-shadow: 0 18px 50px oklch(6% 0.01 120 / 55%);
+}
+
+.trace-item:hover .trace-popover,
+.trace-item:focus-within .trace-popover {
+  display: block;
+}
+
+.trace-popover pre {
+  margin: 0;
+  color: oklch(88% 0.014 115);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .exchange-view {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -644,6 +742,15 @@ h1 {
   .exchange-view,
   .exchange-meta {
     grid-template-columns: 1fr;
+  }
+
+  .trace-line {
+    grid-template-columns: 36px minmax(90px, 130px) minmax(0, 1fr);
+  }
+
+  .trace-popover {
+    left: 8px;
+    right: 8px;
   }
 
   .kv-table {

@@ -12,7 +12,13 @@ import {
   TerminalSquare,
   Wrench
 } from "lucide-react";
-import type { CapturedRequest, InspectorEvent, NormalizedMessage, NormalizedToolCall } from "@llm-inspector/shared";
+import type {
+  CapturedRequest,
+  InspectorEvent,
+  NormalizedMessage,
+  NormalizedReasoning,
+  NormalizedToolCall
+} from "@llm-inspector/shared";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_INSPECTOR_API ?? "http://127.0.0.1:3000";
@@ -272,19 +278,98 @@ function RequestHeader({ request }: { request: CapturedRequest }) {
 function Conversation({ request }: { request: CapturedRequest }) {
   const input = request.trace?.inputMessages ?? [];
   const output = request.trace?.outputMessages ?? [];
-  const messages = [...input, ...output];
+  const reasoning = request.trace?.reasoning ?? [];
+  const toolCalls = request.trace?.toolCalls ?? [];
 
-  if (messages.length === 0) {
+  if (input.length === 0 && output.length === 0 && reasoning.length === 0 && toolCalls.length === 0) {
     return <JsonBlock value={request.trace ?? request.requestBody ?? request.responseBody ?? "No parsed conversation yet."} />;
   }
 
+  return <TraceFlow input={input} output={output} reasoning={reasoning} toolCalls={toolCalls} />;
+}
+
+function TraceFlow({
+  input,
+  output,
+  reasoning,
+  toolCalls
+}: {
+  input: NormalizedMessage[];
+  output: NormalizedMessage[];
+  reasoning: NormalizedReasoning[];
+  toolCalls: NormalizedToolCall[];
+}) {
   return (
-    <div className="conversation">
-      {request.trace?.toolCalls?.length ? <ToolCallsPanel toolCalls={request.trace.toolCalls} /> : null}
-      {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} />
+    <div className="trace-flow">
+      {input.map((message) => (
+        <TraceItem
+          key={message.id}
+          direction="request"
+          kind={message.role === "system" ? "System prompt" : message.role}
+          title={message.role === "system" ? summarize(message.content, 96) : summarize(message.content, 120)}
+          detail={message.content}
+        />
+      ))}
+
+      {reasoning.map((item) => (
+        <TraceItem
+          key={item.id}
+          direction="response"
+          kind="Reasoning"
+          title={summarize(item.content, 140)}
+          detail={formatJson(item.details ?? item.content)}
+          emphasis="reasoning"
+        />
+      ))}
+
+      {toolCalls.map((tool, index) => (
+        <TraceItem
+          key={`${tool.id}-${index}`}
+          direction="response"
+          kind="Tool call request"
+          title={`${tool.name}${tool.input ? ` ${summarize(formatJson(tool.input), 90)}` : ""}`}
+          detail={formatJson({ id: tool.id, name: tool.name, input: tool.input ?? tool.inputText })}
+          emphasis="tool"
+        />
+      ))}
+
+      {output.map((message) => (
+        <TraceItem
+          key={message.id}
+          direction="response"
+          kind={message.role}
+          title={summarize(message.content, 140)}
+          detail={message.content}
+        />
       ))}
     </div>
+  );
+}
+
+function TraceItem({
+  direction,
+  kind,
+  title,
+  detail,
+  emphasis
+}: {
+  direction: "request" | "response";
+  kind: string;
+  title: string;
+  detail: string;
+  emphasis?: "reasoning" | "tool";
+}) {
+  return (
+    <article className={`trace-item trace-${direction} ${emphasis ? `trace-${emphasis}` : ""}`} tabIndex={0}>
+      <div className="trace-line">
+        <span className="trace-arrow">{direction === "request" ? "-->" : "<--"}</span>
+        <span className="trace-kind">{kind}</span>
+        <span className="trace-title">{title || "(empty)"}</span>
+      </div>
+      <div className="trace-popover">
+        <pre>{detail}</pre>
+      </div>
+    </article>
   );
 }
 
@@ -405,6 +490,12 @@ function formatJson(value: unknown): string {
 
 function toolCallCount(request: CapturedRequest): number {
   return request.trace?.toolCalls?.length ?? 0;
+}
+
+function summarize(value: string, limit: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 1)}...`;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
