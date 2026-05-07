@@ -47,17 +47,17 @@ Install the local CA certificate into your system trust store:
 npx llm-lens cert install
 ```
 
-Start the inspector. The web UI opens automatically:
-
-```sh
-npx llm-lens start
-```
-
-Or start the inspector and run an agent command through it in one terminal. The
-web UI still opens automatically:
+Run your agent through LLM Lens. The proxy, API, and web UI start automatically:
 
 ```sh
 npx llm-lens opencode
+npx llm-lens claude
+```
+
+Or start the inspector without launching an agent:
+
+```sh
+npx llm-lens start
 ```
 
 Default local endpoints:
@@ -94,6 +94,7 @@ Or let the CLI set those variables for the child process:
 
 ```sh
 npx llm-lens opencode
+npx llm-lens claude
 ```
 
 Put LLM Lens options before the agent command. Arguments after the agent
@@ -113,7 +114,9 @@ Run an agent command through LLM Lens:
 
 ```sh
 npx llm-lens opencode
+npx llm-lens claude
 npx llm-lens run opencode
+npx llm-lens run claude
 ```
 
 Start LLM Lens:
