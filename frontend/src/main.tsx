@@ -9,8 +9,11 @@ import {
   Loader2,
   KeyRound,
   MessageSquareText,
+  Monitor,
+  Moon,
   Radio,
   Rows3,
+  Sun,
   Trash2,
   Upload,
   TerminalSquare,
@@ -40,6 +43,10 @@ const WS_BASE = API_BASE.replace(/^http/, "ws");
 const PROXY_URL = runtimeConfig.proxyUrl ?? import.meta.env.VITE_INSPECTOR_PROXY_URL ?? "http://127.0.0.1:9191";
 
 type Tab = "conversation" | "exchange" | "raw" | "headers" | "chunks";
+type ThemePreference = "system" | "light" | "dark";
+type ResolvedTheme = "light" | "dark";
+
+const THEME_STORAGE_KEY = "llm-inspector-theme";
 
 function App() {
   const [requests, setRequests] = React.useState<CapturedRequest[]>([]);
@@ -50,6 +57,7 @@ function App() {
   const [deleteBusy, setDeleteBusy] = React.useState<string | undefined>();
   const [sessionError, setSessionError] = React.useState<string | undefined>();
   const importInputRef = React.useRef<HTMLInputElement>(null);
+  const theme = useThemePreference();
 
   React.useEffect(() => {
     fetch(`${API_BASE}/api/requests`)
@@ -177,6 +185,7 @@ function App() {
             {deleteBusy === "all" ? <Loader2 className="spin-icon" size={16} /> : <Trash2 size={16} />}
             <span>Clear</span>
           </button>
+          <ThemeToggle preference={theme.preference} resolvedTheme={theme.resolvedTheme} onToggle={theme.togglePreference} />
           <input
             ref={importInputRef}
             className="session-file-input"
@@ -674,6 +683,102 @@ function StatusPill({ active, label }: { active: boolean; label: string }) {
       {label}
     </div>
   );
+}
+
+function ThemeToggle({
+  preference,
+  resolvedTheme,
+  onToggle
+}: {
+  preference: ThemePreference;
+  resolvedTheme: ResolvedTheme;
+  onToggle: () => void;
+}) {
+  const Icon = preference === "light" ? Sun : preference === "dark" ? Moon : Monitor;
+  const nextPreference = nextThemePreference(preference, resolvedTheme);
+  const currentLabel = themePreferenceLabel(preference);
+  const resolvedLabel = themePreferenceLabel(resolvedTheme);
+  const nextLabel = themePreferenceLabel(nextPreference);
+  const title =
+    preference === "system"
+      ? `Theme: ${currentLabel} (${resolvedLabel}). Switch to ${nextLabel}.`
+      : `Theme: ${currentLabel}. Switch to ${nextLabel}.`;
+
+  return (
+    <button className="theme-toggle" type="button" onClick={onToggle} title={title} aria-label={title}>
+      <Icon size={18} strokeWidth={2.25} />
+    </button>
+  );
+}
+
+function useThemePreference() {
+  const [preference, setPreference] = React.useState<ThemePreference>(() => readThemePreference());
+  const [systemTheme, setSystemTheme] = React.useState<ResolvedTheme>(() => getSystemTheme());
+  const resolvedTheme = preference === "system" ? systemTheme : preference;
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const updateSystemTheme = () => setSystemTheme(media.matches ? "light" : "dark");
+
+    updateSystemTheme();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", updateSystemTheme);
+      return () => media.removeEventListener("change", updateSystemTheme);
+    }
+
+    media.addListener(updateSystemTheme);
+    return () => media.removeListener(updateSystemTheme);
+  }, []);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.colorScheme = resolvedTheme;
+
+    try {
+      if (preference === "system") {
+        localStorage.removeItem(THEME_STORAGE_KEY);
+      } else {
+        localStorage.setItem(THEME_STORAGE_KEY, preference);
+      }
+    } catch {
+      // Theme still works for the current page when localStorage is unavailable.
+    }
+  }, [preference, resolvedTheme]);
+
+  return {
+    preference,
+    resolvedTheme,
+    togglePreference: () => setPreference((current) => nextThemePreference(current, current === "system" ? systemTheme : current))
+  };
+}
+
+function readThemePreference(): ThemePreference {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    return isThemePreference(stored) ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function getSystemTheme(): ResolvedTheme {
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function nextThemePreference(preference: ThemePreference, resolvedTheme: ResolvedTheme): ThemePreference {
+  if (preference === "system") return resolvedTheme === "dark" ? "light" : "dark";
+  if (preference === "light") return "dark";
+  return "system";
+}
+
+function themePreferenceLabel(preference: ThemePreference | ResolvedTheme): string {
+  if (preference === "system") return "System";
+  if (preference === "light") return "Light";
+  return "Dark";
+}
+
+function isThemePreference(value: string | null): value is ThemePreference {
+  return value === "system" || value === "light" || value === "dark";
 }
 
 function EmptyTimeline() {
