@@ -9,9 +9,9 @@ import { startInspectorServer, startInspectorUiServer } from "../server/http-ser
 import { startCaptureProxy } from "../proxy/capture-proxy.js";
 import {
   ensureCertificate,
+  installCertificateTrust,
   printCertStatus,
-  printInstallInstructions,
-  printUninstallInstructions
+  uninstallCertificateTrust
 } from "../cert/cert-cli.js";
 import { rootCaPath } from "../cert/paths.js";
 
@@ -91,9 +91,9 @@ program
       console.log(await ensureCertificate());
       return;
     }
-    if (action === "install") return printInstallInstructions();
+    if (action === "install") return installCertificateTrust();
     if (action === "status") return printCertStatus();
-    if (action === "uninstall") return printUninstallInstructions();
+    if (action === "uninstall") return uninstallCertificateTrust();
     throw new Error(`Unknown cert action: ${action}`);
   });
 

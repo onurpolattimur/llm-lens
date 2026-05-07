@@ -73,10 +73,12 @@ npx /path/to/llm-inspector start --open
 ## Certificate Commands
 
 ```sh
-npm run build
-node backend/dist/cli/index.js cert status
-node backend/dist/cli/index.js cert install
-node backend/dist/cli/index.js cert uninstall
+npx llm-inspector cert status
+npx llm-inspector cert install
+npx llm-inspector cert uninstall
 ```
 
-The `cert install` command prints the platform/runtime commands to trust the local CA. It does not run `sudo`.
+`cert install` generates the local CA when needed and installs it into the
+system trust store. On macOS and Linux it may ask for your password through
+`sudo`. Some runtimes still require process-level trust variables; the command
+prints those after installation.
