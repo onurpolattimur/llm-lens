@@ -1,20 +1,23 @@
 {
   "name": "@llm-inspector/shared",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "development": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./parser": {
+      "development": "./src/parser.ts",
       "types": "./dist/parser.d.ts",
       "default": "./dist/parser.js"
     },
     "./redaction": {
+      "development": "./src/redaction.ts",
       "types": "./dist/redaction.d.ts",
       "default": "./dist/redaction.js"
     }

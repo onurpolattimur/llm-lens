@@ -21,8 +21,19 @@ import type {
 } from "@llm-inspector/shared";
 import "./styles.css";
 
-const API_BASE = import.meta.env.VITE_INSPECTOR_API ?? "http://127.0.0.1:3000";
+declare global {
+  interface Window {
+    __LLM_INSPECTOR_CONFIG__?: {
+      apiBaseUrl?: string;
+      proxyUrl?: string;
+    };
+  }
+}
+
+const runtimeConfig = window.__LLM_INSPECTOR_CONFIG__ ?? {};
+const API_BASE = runtimeConfig.apiBaseUrl ?? import.meta.env.VITE_INSPECTOR_API ?? window.location.origin;
 const WS_BASE = API_BASE.replace(/^http/, "ws");
+const PROXY_URL = runtimeConfig.proxyUrl ?? import.meta.env.VITE_INSPECTOR_PROXY_URL ?? "http://127.0.0.1:9191";
 
 type Tab = "conversation" | "exchange" | "raw" | "headers" | "chunks";
 
@@ -65,7 +76,7 @@ function App() {
           <StatusPill active={connected} label={connected ? "Live feed" : "Disconnected"} />
           <div className="proxy-chip">
             <Radio size={16} />
-            <span>Proxy 127.0.0.1:8080</span>
+            <span>Proxy {formatProxyUrl(PROXY_URL)}</span>
           </div>
         </div>
       </header>
@@ -255,6 +266,8 @@ function PrettyBody({ value }: { value: unknown }) {
 }
 
 function RequestHeader({ request }: { request: CapturedRequest }) {
+  const usage = getUsageSummary(request);
+
   return (
     <div className="request-header">
       <div>
@@ -266,6 +279,11 @@ function RequestHeader({ request }: { request: CapturedRequest }) {
         <div className="url-line">{request.url}</div>
       </div>
       <div className="metrics">
+        <Metric label="Cost" value={formatCost(usage.costUsd)} />
+        <Metric label="Tokens" value={formatTokens(usage.totalTokens)} />
+        <Metric label="Cache Read" value={formatTokens(usage.cachedTokens)} />
+        <Metric label="Charged Tokens" value={formatTokens(usage.billableTokens)} />
+        <Metric label="In / Out" value={formatTokenPair(usage.inputTokens, usage.outputTokens)} />
         <Metric label="Tools" value={toolCallCount(request) || "-"} />
         <Metric label="Status" value={request.statusCode ?? "-"} />
         <Metric label="Duration" value={request.durationMs ? `${request.durationMs}ms` : "-"} />
@@ -416,6 +434,92 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+type UsageSummary = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedTokens?: number;
+  billableTokens?: number;
+  costUsd?: number;
+};
+
+function getUsageSummary(request: CapturedRequest): UsageSummary {
+  const directUsage = mergeUsageSummaries(usageFromUnknown(responseUsage(request.responseBody)), usageFromUnknown(request.trace?.usage));
+  const streamedUsage = usageFromStreamChunks(request);
+  return withBillableTokens(mergeUsageSummaries(directUsage, streamedUsage));
+}
+
+function usageFromStreamChunks(request: CapturedRequest): UsageSummary | undefined {
+  for (let index = (request.streamChunks?.length ?? 0) - 1; index >= 0; index -= 1) {
+    const usage = usageFromUnknown(responseUsage(request.streamChunks?.[index]?.parsed));
+    if (usage) return usage;
+  }
+  return undefined;
+}
+
+function responseUsage(value: unknown): unknown {
+  return isRecord(value) ? value.usage ?? value.usageMetadata : undefined;
+}
+
+function usageFromUnknown(value: unknown): UsageSummary | undefined {
+  if (!isRecord(value)) return undefined;
+  const promptDetails = isRecord(value.prompt_tokens_details) ? value.prompt_tokens_details : undefined;
+  const summary = {
+    inputTokens: numberValue(value.prompt_tokens ?? value.input_tokens ?? value.promptTokenCount),
+    outputTokens: numberValue(value.completion_tokens ?? value.output_tokens ?? value.candidatesTokenCount),
+    totalTokens: numberValue(value.total_tokens ?? value.totalTokenCount),
+    cachedTokens: numberValue(value.cachedTokens ?? value.cache_read_input_tokens ?? value.cachedContentTokenCount ?? promptDetails?.cached_tokens),
+    costUsd: numberValue(value.cost)
+  };
+  return Object.values(summary).some((item) => item !== undefined) ? summary : undefined;
+}
+
+function mergeUsageSummaries(base: UsageSummary | undefined, override: UsageSummary | undefined): UsageSummary {
+  return { ...base, ...withoutUndefined(override) };
+}
+
+function withoutUndefined(value: UsageSummary | undefined): Partial<UsageSummary> {
+  if (!value) return {};
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<UsageSummary>;
+}
+
+function withBillableTokens(usage: UsageSummary): UsageSummary {
+  const totalTokens = usage.totalTokens ?? sumTokens(usage.inputTokens, usage.outputTokens);
+  if (totalTokens === undefined || usage.cachedTokens === undefined) return usage;
+  return { ...usage, billableTokens: Math.max(totalTokens - usage.cachedTokens, 0) };
+}
+
+function sumTokens(inputTokens: number | undefined, outputTokens: number | undefined): number | undefined {
+  if (inputTokens === undefined && outputTokens === undefined) return undefined;
+  return (inputTokens ?? 0) + (outputTokens ?? 0);
+}
+
+function formatCost(value: number | undefined): string {
+  if (value === undefined) return "-";
+  if (value === 0) return "$0";
+  if (value < 0.01) return `$${value.toFixed(6)}`;
+  return `$${value.toFixed(4)}`;
+}
+
+function formatTokens(value: number | undefined): string {
+  if (value === undefined) return "-";
+  return new Intl.NumberFormat(undefined, { notation: value >= 10000 ? "compact" : "standard" }).format(value);
+}
+
+function formatTokenPair(input: number | undefined, output: number | undefined): string {
+  if (input === undefined && output === undefined) return "-";
+  return `${formatTokens(input)} / ${formatTokens(output)}`;
+}
+
+function formatProxyUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.host;
+  } catch {
+    return value.replace(/^https?:\/\//, "");
+  }
+}
+
 function TabButton({
   active,
   icon,
@@ -496,6 +600,14 @@ function summarize(value: string, limit: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, limit - 1)}...`;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

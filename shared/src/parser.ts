@@ -201,8 +201,31 @@ function normalizeAnthropicSystem(value: unknown): NormalizedMessage[] {
 function normalizeMessage(value: unknown): NormalizedMessage[] {
   if (!isRecord(value)) return [];
   const role = normalizeRole(value.role);
-  const content = stringifyContent(value.content ?? value.parts ?? value.text ?? value.message);
+  const content = normalizeMessageContent(value);
   return [{ id: cryptoId(), role, content, name: stringValue(value.name) }];
+}
+
+function normalizeMessageContent(value: Record<string, unknown>): string {
+  const content = stringifyContent(value.content ?? value.parts ?? value.text ?? value.message);
+  if (content.trim()) return content;
+
+  const toolCallContent = stringifyMessageToolCalls(value.tool_calls);
+  if (toolCallContent) return toolCallContent;
+
+  return content;
+}
+
+function stringifyMessageToolCalls(value: unknown): string | undefined {
+  const toolCalls = extractOpenAiToolCalls(value);
+  if (toolCalls.length === 0) return undefined;
+
+  return toolCalls
+    .map((toolCall) => {
+      const input = toolCall.input ?? toolCall.inputText;
+      const suffix = input === undefined ? "" : ` ${stringifyContent(input)}`;
+      return `tool_call ${toolCall.name}${suffix}`;
+    })
+    .join("\n");
 }
 
 function normalizeAnthropicContent(value: unknown): NormalizedMessage[] {
@@ -376,16 +399,19 @@ function normalizeAnthropicUsage(value: unknown): TokenUsage | undefined {
   if (!isRecord(value)) return undefined;
   return {
     inputTokens: numberValue(value.input_tokens),
-    outputTokens: numberValue(value.output_tokens)
+    outputTokens: numberValue(value.output_tokens),
+    cachedTokens: numberValue(value.cache_read_input_tokens)
   };
 }
 
 function normalizeOpenAiUsage(value: unknown): TokenUsage | undefined {
   if (!isRecord(value)) return undefined;
+  const promptDetails = isRecord(value.prompt_tokens_details) ? value.prompt_tokens_details : undefined;
   return {
     inputTokens: numberValue(value.prompt_tokens ?? value.input_tokens),
     outputTokens: numberValue(value.completion_tokens ?? value.output_tokens),
-    totalTokens: numberValue(value.total_tokens)
+    totalTokens: numberValue(value.total_tokens),
+    cachedTokens: numberValue(promptDetails?.cached_tokens)
   };
 }
 
@@ -394,7 +420,8 @@ function normalizeGoogleUsage(value: unknown): TokenUsage | undefined {
   return {
     inputTokens: numberValue(value.promptTokenCount),
     outputTokens: numberValue(value.candidatesTokenCount),
-    totalTokens: numberValue(value.totalTokenCount)
+    totalTokens: numberValue(value.totalTokenCount),
+    cachedTokens: numberValue(value.cachedContentTokenCount)
   };
 }
 

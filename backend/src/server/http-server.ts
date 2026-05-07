@@ -1,5 +1,9 @@
 import cors from "@fastify/cors";
+import staticFiles from "@fastify/static";
 import Fastify from "fastify";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import type { EventStore } from "./event-store.js";
 
@@ -7,6 +11,13 @@ export type InspectorServerOptions = {
   host: string;
   port: number;
   store: EventStore;
+};
+
+export type InspectorUiServerOptions = {
+  host: string;
+  port: number;
+  apiBaseUrl: string;
+  proxyUrl: string;
 };
 
 export async function startInspectorServer(options: InspectorServerOptions): Promise<{ close: () => Promise<void> }> {
@@ -21,7 +32,7 @@ export async function startInspectorServer(options: InspectorServerOptions): Pro
     return captured;
   });
 
-  const address = await app.listen({ host: options.host, port: options.port });
+  await app.listen({ host: options.host, port: options.port });
   const wss = new WebSocketServer({ server: app.server, path: "/events" });
 
   wss.on("connection", (socket) => {
@@ -39,3 +50,28 @@ export async function startInspectorServer(options: InspectorServerOptions): Pro
   };
 }
 
+export async function startInspectorUiServer(options: InspectorUiServerOptions): Promise<{ close: () => Promise<void> } | undefined> {
+  const frontendDist = resolve(dirname(fileURLToPath(import.meta.url)), "../../../frontend/dist");
+  if (!existsSync(resolve(frontendDist, "index.html"))) return undefined;
+
+  const app = Fastify({ logger: false });
+  app.get("/config.js", async (_request, reply) => {
+    reply.type("application/javascript");
+    return `window.__LLM_INSPECTOR_CONFIG__=${JSON.stringify({
+      apiBaseUrl: options.apiBaseUrl,
+      proxyUrl: options.proxyUrl
+    })};`;
+  });
+  await app.register(staticFiles, {
+    root: frontendDist,
+    prefix: "/"
+  });
+  app.setNotFoundHandler((_request, reply) => reply.sendFile("index.html"));
+  await app.listen({ host: options.host, port: options.port });
+
+  return {
+    close: async () => {
+      await app.close();
+    }
+  };
+}

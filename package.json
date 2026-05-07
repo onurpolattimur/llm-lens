@@ -1,7 +1,7 @@
 {
   "name": "llm-inspector",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "workspaces": [
     "backend",
@@ -9,11 +9,31 @@
     "shared"
   ],
   "scripts": {
-    "dev": "npm run build --workspace @llm-inspector/shared && concurrently -n backend,frontend -c green,yellow \"npm run dev --workspace @llm-inspector/backend\" \"npm run dev --workspace @llm-inspector/frontend\"",
-    "dev:backend": "npm run build --workspace @llm-inspector/shared && npm run dev --workspace @llm-inspector/backend",
-    "dev:frontend": "npm run build --workspace @llm-inspector/shared && npm run dev --workspace @llm-inspector/frontend",
-    "build": "npm run build --workspace @llm-inspector/shared && npm run build --workspace @llm-inspector/backend && npm run build --workspace @llm-inspector/frontend",
+    "dev": "concurrently -n backend,frontend -c green,yellow \"npm run dev --workspace @llm-inspector/backend\" \"npm run dev --workspace @llm-inspector/frontend\"",
+    "dev:open": "concurrently -n backend,frontend -c green,yellow \"npm run dev --workspace @llm-inspector/backend -- --open\" \"npm run dev --workspace @llm-inspector/frontend\"",
+    "dev:backend": "npm run dev --workspace @llm-inspector/backend",
+    "dev:frontend": "npm run dev --workspace @llm-inspector/frontend",
+    "opencode": "tsx --conditions=development backend/src/cli/index.ts opencode",
+    "build": "npm run build --workspace @llm-inspector/shared && npm run build --workspace @llm-inspector/backend && node scripts/patch-built-imports.mjs && npm run build --workspace @llm-inspector/frontend",
+    "prepack": "npm run build",
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "files": [
+    "backend/dist",
+    "frontend/dist",
+    "shared/dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@fastify/cors": "^10.0.1",
+    "@fastify/static": "^9.1.3",
+    "commander": "^12.1.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.0.0",
+    "http-mitm-proxy": "^1.1.0",
+    "nanoid": "^5.0.7",
+    "node-forge": "^1.3.1",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
