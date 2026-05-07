@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => {
     envPrefix: ["VITE_", "LLM_INSPECTOR_"],
     server: {
       host,
-      port: uiPort
+      port: uiPort,
+      open: true
     },
     preview: {
       host,

@@ -47,16 +47,17 @@ Install the local CA certificate into your system trust store:
 npx llm-inspector cert install
 ```
 
-Start the inspector and open the UI:
+Start the inspector. The web UI opens automatically:
 
 ```sh
-npx llm-inspector start --open
+npx llm-inspector start
 ```
 
-Or start the inspector and run an agent command through it in one terminal:
+Or start the inspector and run an agent command through it in one terminal. The
+web UI still opens automatically:
 
 ```sh
-npx llm-inspector --open opencode
+npx llm-inspector opencode
 ```
 
 Default local endpoints:
@@ -93,7 +94,6 @@ Or let the CLI set those variables for the child process:
 
 ```sh
 npx llm-inspector opencode
-npx llm-inspector --open opencode
 ```
 
 Put LLM Inspector options before the agent command. Arguments after the agent
@@ -113,18 +113,19 @@ Run an agent command through LLM Inspector:
 
 ```sh
 npx llm-inspector opencode
-npx llm-inspector --open opencode
-npx llm-inspector run --open opencode
+npx llm-inspector run opencode
 ```
 
 Start LLM Inspector:
 
 ```sh
 npx llm-inspector start
-npx llm-inspector start --open
 npx llm-inspector start --proxy-port 9191 --api-port 9292 --ui-port 5270
 npx llm-inspector start --additional-provider-urls api.example.com,https://llm.internal.test
 ```
+
+When the built web UI is served, the CLI opens it in the default browser
+automatically.
 
 Manage certificates:
 
@@ -191,16 +192,10 @@ Install dependencies:
 npm install
 ```
 
-Start the backend proxy/API and the Vite web UI:
+Start the backend proxy/API and the Vite web UI. The web UI opens automatically:
 
 ```sh
 npm run dev
-```
-
-Open the UI automatically while developing:
-
-```sh
-npm run dev:open
 ```
 
 Development endpoints use the same defaults as the packaged CLI:
@@ -269,8 +264,8 @@ For local package testing from another directory:
 
 ```sh
 npm run build
-npx /path/to/llm-inspector start --open
-npx /path/to/llm-inspector --open opencode
+npx /path/to/llm-inspector start
+npx /path/to/llm-inspector opencode
 ```
 
 `/path/to/llm-inspector` is a placeholder for the actual checkout directory, not

@@ -29,7 +29,6 @@ type InspectorOptions = {
   uiPort: string;
   host: string;
   additionalProviderUrls: string;
-  open?: boolean;
   uiServer: boolean;
 };
 
@@ -41,6 +40,7 @@ type InspectorRuntime = {
   proxyUrl: string;
   apiBaseUrl: string;
   uiUrl: string;
+  uiServerStarted: boolean;
   caPath: string;
   additionalProviderHosts: string[];
   close: () => Promise<void>;
@@ -57,7 +57,6 @@ program
 addInspectorOptions(program)
   .argument("[agent-command]", "agent command to run through the proxy")
   .argument("[agent-args...]", "arguments passed to the agent command")
-  .allowUnknownOption()
   .allowExcessArguments()
   .passThroughOptions()
   .action(async (agentCommand: string | undefined, agentArgs: string[], options: InspectorOptions) => {
@@ -72,7 +71,7 @@ addInspectorOptions(program.command("start").description("start the proxy, API, 
   .action(async (options: InspectorOptions) => {
     const runtime = await startInspector(options);
     printInspectorStarted(runtime);
-    if (options.open) openBrowser(runtime.uiUrl);
+    openBrowserIfUiIsAvailable(runtime);
     console.log("");
     console.log("To inspect Claude Code / Node.js agents:");
     console.log(`  export HTTPS_PROXY=${runtime.proxyUrl}`);
@@ -85,7 +84,6 @@ addInspectorOptions(program.command("start").description("start the proxy, API, 
 addInspectorOptions(program.command("run").description("start the inspector and run an agent command"))
   .argument("<agent-command>", "agent command to run through the proxy")
   .argument("[agent-args...]", "arguments passed to the agent command")
-  .allowUnknownOption()
   .allowExcessArguments()
   .passThroughOptions()
   .action(async (agentCommand: string, agentArgs: string[], options: InspectorOptions) => {
@@ -112,10 +110,9 @@ function addInspectorOptions(command: Command): Command {
   return command
     .option("--proxy-port <port>", "proxy port", envValue("LLM_INSPECTOR_PROXY_PORT", DEFAULT_PROXY_PORT))
     .option("--api-port <port>", "API/WebSocket port", envValue("LLM_INSPECTOR_API_PORT", DEFAULT_API_PORT))
-    .option("--ui-port <port>", "web UI port used for opening the browser", envValue("LLM_INSPECTOR_UI_PORT", DEFAULT_UI_PORT))
+    .option("--ui-port <port>", "web UI port", envValue("LLM_INSPECTOR_UI_PORT", DEFAULT_UI_PORT))
     .option("--host <host>", "bind host", envValue("LLM_INSPECTOR_HOST", DEFAULT_HOST))
     .option("--additional-provider-urls <urls>", "extra provider hosts or URLs to capture", envValue(ADDITIONAL_PROVIDER_URLS_ENV, ""))
-    .option("--open", "open the web UI in the default browser")
     .option("--no-ui-server", "do not serve the built web UI");
 }
 
@@ -131,6 +128,7 @@ async function startInspector(options: InspectorOptions): Promise<InspectorRunti
   const additionalProviderHosts = parseProviderHosts(options.additionalProviderUrls);
   const store = new EventStore();
   const handles: CloseHandle[] = [];
+  let uiServerStarted = false;
 
   try {
     const apiServer = await startInspectorServer({ host, port: Number(apiPort), store });
@@ -143,7 +141,10 @@ async function startInspector(options: InspectorOptions): Promise<InspectorRunti
         apiBaseUrl,
         proxyUrl
       });
-      if (uiServer) handles.push(uiServer);
+      if (uiServer) {
+        uiServerStarted = true;
+        handles.push(uiServer);
+      }
     }
 
     const proxyServer = await startCaptureProxy({
@@ -158,6 +159,7 @@ async function startInspector(options: InspectorOptions): Promise<InspectorRunti
       proxyUrl,
       apiBaseUrl,
       uiUrl,
+      uiServerStarted,
       caPath: rootCaPath(),
       additionalProviderHosts,
       close: () => closeHandles(handles)
@@ -171,7 +173,7 @@ async function startInspector(options: InspectorOptions): Promise<InspectorRunti
 async function runAgentCommand(agentCommand: string, agentArgs: string[], options: InspectorOptions): Promise<void> {
   const runtime = await startInspector(options);
   printInspectorStarted(runtime);
-  if (options.open) openBrowser(runtime.uiUrl);
+  openBrowserIfUiIsAvailable(runtime);
 
   const normalizedArgs = normalizeAgentArgs(agentArgs);
   console.log("");
@@ -252,11 +254,21 @@ function printInspectorStarted(runtime: InspectorRuntime): void {
   console.log("");
   console.log(`Proxy: ${runtime.proxyUrl}`);
   console.log(`API/WebSocket: ${runtime.apiBaseUrl}`);
-  console.log(`Web UI: ${runtime.uiUrl}`);
+  console.log(`Web UI: ${runtime.uiServerStarted ? runtime.uiUrl : "not served"}`);
   console.log(`CA certificate: ${runtime.caPath}`);
   if (runtime.additionalProviderHosts.length > 0) {
     console.log(`Additional provider hosts: ${runtime.additionalProviderHosts.join(", ")}`);
   }
+}
+
+function openBrowserIfUiIsAvailable(runtime: InspectorRuntime): void {
+  if (!runtime.uiServerStarted) return;
+  const command =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", runtime.uiUrl] : [runtime.uiUrl];
+  const child = spawn(command, args, { stdio: "ignore", detached: true });
+  child.on("error", () => undefined);
+  child.unref();
 }
 
 function signalExitCode(signal: NodeJS.Signals): number {
@@ -267,15 +279,6 @@ function signalExitCode(signal: NodeJS.Signals): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function openBrowser(url: string): void {
-  const command =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, { stdio: "ignore", detached: true });
-  child.on("error", () => undefined);
-  child.unref();
 }
 
 function envValue(key: string, fallback: string): string {
