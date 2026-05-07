@@ -5,10 +5,14 @@ import {
   ArrowRightLeft,
   Braces,
   Clock,
+  Download,
+  Loader2,
   KeyRound,
   MessageSquareText,
   Radio,
   Rows3,
+  Trash2,
+  Upload,
   TerminalSquare,
   Wrench
 } from "lucide-react";
@@ -42,6 +46,10 @@ function App() {
   const [selectedId, setSelectedId] = React.useState<string | undefined>();
   const [tab, setTab] = React.useState<Tab>("conversation");
   const [connected, setConnected] = React.useState(false);
+  const [sessionBusy, setSessionBusy] = React.useState<"export" | "import" | undefined>();
+  const [deleteBusy, setDeleteBusy] = React.useState<string | undefined>();
+  const [sessionError, setSessionError] = React.useState<string | undefined>();
+  const importInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     fetch(`${API_BASE}/api/requests`)
@@ -59,11 +67,85 @@ function App() {
       const event = JSON.parse(message.data) as InspectorEvent;
       setRequests((current) => applyEvent(current, event));
       if (event.type === "request:start") setSelectedId((current) => current ?? event.request.id);
+      if (event.type === "request:delete") setSelectedId((current) => (current === event.requestId ? undefined : current));
+      if (event.type === "requests:clear") setSelectedId(undefined);
     });
     return () => socket.close();
   }, []);
 
+  React.useEffect(() => {
+    setSelectedId((current) => (current && requests.some((request) => request.id === current) ? current : requests[0]?.id));
+  }, [requests]);
+
   const selected = requests.find((request) => request.id === selectedId) ?? requests[0];
+
+  async function exportSession() {
+    setSessionBusy("export");
+    setSessionError(undefined);
+    try {
+      const response = await fetch(`${API_BASE}/api/session/export`);
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      downloadBlob(blob, getFilename(response.headers.get("content-disposition")) ?? defaultExportFilename());
+    } catch {
+      setSessionError("Session export failed.");
+    } finally {
+      setSessionBusy(undefined);
+    }
+  }
+
+  async function importSession(file: File | undefined) {
+    if (!file) return;
+    setSessionBusy("import");
+    setSessionError(undefined);
+    try {
+      const session = JSON.parse(await file.text()) as unknown;
+      const response = await fetch(`${API_BASE}/api/session/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(session)
+      });
+      if (!response.ok) throw new Error("Import failed");
+      const data = (await response.json()) as { requests: CapturedRequest[] };
+      setRequests(data.requests);
+      setSelectedId(data.requests[0]?.id);
+    } catch {
+      setSessionError("Session load failed.");
+    } finally {
+      setSessionBusy(undefined);
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  }
+
+  async function clearRequests() {
+    if (requests.length === 0) return;
+    setDeleteBusy("all");
+    setSessionError(undefined);
+    try {
+      const response = await fetch(`${API_BASE}/api/requests`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Clear failed");
+      setRequests([]);
+      setSelectedId(undefined);
+    } catch {
+      setSessionError("Requests could not be cleared.");
+    } finally {
+      setDeleteBusy(undefined);
+    }
+  }
+
+  async function deleteRequest(id: string) {
+    setDeleteBusy(id);
+    setSessionError(undefined);
+    try {
+      const response = await fetch(`${API_BASE}/api/requests/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
+      setRequests((current) => current.filter((request) => request.id !== id));
+    } catch {
+      setSessionError("Request could not be deleted.");
+    } finally {
+      setDeleteBusy(undefined);
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -78,6 +160,31 @@ function App() {
             <Radio size={16} />
             <span>Proxy {formatProxyUrl(PROXY_URL)}</span>
           </div>
+          <button className="session-button" onClick={exportSession} disabled={sessionBusy !== undefined || requests.length === 0} title="Export session">
+            {sessionBusy === "export" ? <Loader2 className="spin-icon" size={16} /> : <Download size={16} />}
+            <span>Export</span>
+          </button>
+          <button className="session-button" onClick={() => importInputRef.current?.click()} disabled={sessionBusy !== undefined} title="Load session">
+            {sessionBusy === "import" ? <Loader2 className="spin-icon" size={16} /> : <Upload size={16} />}
+            <span>Load</span>
+          </button>
+          <button
+            className="session-button danger-button"
+            onClick={() => void clearRequests()}
+            disabled={deleteBusy !== undefined || requests.length === 0}
+            title="Clear requests"
+          >
+            {deleteBusy === "all" ? <Loader2 className="spin-icon" size={16} /> : <Trash2 size={16} />}
+            <span>Clear</span>
+          </button>
+          <input
+            ref={importInputRef}
+            className="session-file-input"
+            type="file"
+            accept="application/json,.json"
+            onChange={(event) => void importSession(event.currentTarget.files?.[0])}
+          />
+          {sessionError ? <div className="session-error">{sessionError}</div> : null}
         </div>
       </header>
 
@@ -93,14 +200,35 @@ function App() {
               <EmptyTimeline />
             ) : (
               requests.map((request) => (
-                <button
+                <article
                   className={`timeline-item ${request.id === selected?.id ? "selected" : ""}`}
                   key={request.id}
                   onClick={() => setSelectedId(request.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedId(request.id);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                 >
                   <div className="item-primary">
                     <span className={`provider provider-${request.provider}`}>{request.provider}</span>
-                    <span>{formatTime(request.startedAt)}</span>
+                    <div className="item-actions">
+                      <span>{formatTime(request.startedAt)}</span>
+                      <button
+                        className="timeline-delete"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteRequest(request.id);
+                        }}
+                        disabled={deleteBusy !== undefined}
+                        title="Delete request"
+                      >
+                        {deleteBusy === request.id ? <Loader2 className="spin-icon" size={13} /> : <Trash2 size={13} />}
+                      </button>
+                    </div>
                   </div>
                   <div className="item-model">{request.trace?.model ?? request.path}</div>
                   {toolCallCount(request) > 0 ? (
@@ -113,7 +241,7 @@ function App() {
                     <span>{request.statusCode ?? "pending"}</span>
                     <span>{request.durationMs ? `${request.durationMs}ms` : request.streaming ? "streaming" : "open"}</span>
                   </div>
-                </button>
+                </article>
               ))
             )}
           </div>
@@ -570,7 +698,29 @@ function applyEvent(current: CapturedRequest[], event: InspectorEvent): Captured
         : request
     );
   }
+  if (event.type === "request:delete") return current.filter((request) => request.id !== event.requestId);
+  if (event.type === "requests:clear") return [];
   return current;
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function getFilename(contentDisposition: string | null): string | undefined {
+  const match = contentDisposition?.match(/filename="([^"]+)"/);
+  return match?.[1];
+}
+
+function defaultExportFilename(): string {
+  return `llm-inspector-session-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
 }
 
 function formatTime(value: string): string {

@@ -2,7 +2,7 @@ import { Proxy, type IContext } from "http-mitm-proxy";
 import { nanoid } from "nanoid";
 import {
   detectProvider,
-  isAllowedProviderHost,
+  isAllowedLlmHost,
   type CapturedRequest,
   type StreamChunk
 } from "@llm-inspector/shared";
@@ -28,6 +28,7 @@ export type CaptureProxyOptions = {
   host: string;
   port: number;
   store: EventStore;
+  additionalProviderHosts?: string[];
 };
 
 export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{ close: () => void }> {
@@ -43,7 +44,7 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
 
   proxy.onRequest((ctx, callback) => {
     const host = headerValue(ctx.clientToProxyRequest.headers.host);
-    const capture = Boolean(host && isAllowedProviderHost(host));
+    const capture = Boolean(host && isAllowedLlmHost(host, options.additionalProviderHosts));
     const id = nanoid();
     setState(ctx, {
       id,

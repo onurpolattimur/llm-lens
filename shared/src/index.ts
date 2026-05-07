@@ -67,11 +67,19 @@ export type CapturedRequest = {
   error?: string;
 };
 
+export type InspectorSessionExport = {
+  schemaVersion: 1;
+  exportedAt: string;
+  requests: CapturedRequest[];
+};
+
 export type InspectorEvent =
   | { type: "snapshot"; requests: CapturedRequest[] }
   | { type: "request:start"; request: CapturedRequest }
   | { type: "request:update"; request: CapturedRequest }
-  | { type: "stream:chunk"; requestId: string; chunk: StreamChunk };
+  | { type: "stream:chunk"; requestId: string; chunk: StreamChunk }
+  | { type: "request:delete"; requestId: string }
+  | { type: "requests:clear" };
 
 export const LLM_PROVIDER_HOSTS = [
   "api.anthropic.com",
@@ -81,7 +89,7 @@ export const LLM_PROVIDER_HOSTS = [
 ] as const;
 
 export function detectProvider(host: string): Provider {
-  const normalized = host.toLowerCase();
+  const normalized = normalizeHost(host);
   if (normalized.endsWith("api.anthropic.com")) return "anthropic";
   if (normalized.endsWith("api.openai.com")) return "openai";
   if (normalized.endsWith("openrouter.ai")) return "openrouter";
@@ -90,6 +98,34 @@ export function detectProvider(host: string): Provider {
 }
 
 export function isAllowedProviderHost(host: string): boolean {
-  const normalized = host.toLowerCase().split(":")[0] ?? host.toLowerCase();
-  return LLM_PROVIDER_HOSTS.some((allowedHost) => normalized === allowedHost);
+  return isAllowedLlmHost(host);
+}
+
+export function isAllowedLlmHost(host: string, additionalHosts: string[] = []): boolean {
+  const normalized = normalizeHost(host);
+  const allowedHosts = [...LLM_PROVIDER_HOSTS, ...additionalHosts.map(normalizeHost)];
+  return allowedHosts.some((allowedHost) => normalized === allowedHost);
+}
+
+export function parseProviderHosts(value: string | undefined): string[] {
+  if (!value) return [];
+  const hosts = value
+    .split(/[\s,]+/)
+    .map((item) => normalizeProviderHostInput(item))
+    .filter((item): item is string => Boolean(item));
+  return [...new Set(hosts)];
+}
+
+function normalizeProviderHostInput(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    return normalizeHost(new URL(trimmed).host);
+  } catch {
+    return normalizeHost(trimmed.split("/")[0] ?? trimmed);
+  }
+}
+
+export function normalizeHost(host: string): string {
+  return host.toLowerCase().split(":")[0] ?? host.toLowerCase();
 }

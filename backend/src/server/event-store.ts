@@ -2,6 +2,12 @@ import type { CapturedRequest, InspectorEvent, StreamChunk } from "@llm-inspecto
 
 const MAX_REQUESTS = 500;
 
+export type InspectorSessionExport = {
+  schemaVersion: 1;
+  exportedAt: string;
+  requests: CapturedRequest[];
+};
+
 export class EventStore {
   private requests = new Map<string, CapturedRequest>();
   private listeners = new Set<(event: InspectorEvent) => void>();
@@ -12,6 +18,34 @@ export class EventStore {
 
   get(id: string): CapturedRequest | undefined {
     return this.requests.get(id);
+  }
+
+  clear(): void {
+    if (this.requests.size === 0) return;
+    this.requests.clear();
+    this.emit({ type: "requests:clear" });
+  }
+
+  delete(id: string): boolean {
+    const deleted = this.requests.delete(id);
+    if (deleted) this.emit({ type: "request:delete", requestId: id });
+    return deleted;
+  }
+
+  exportSession(): InspectorSessionExport {
+    return {
+      schemaVersion: 1,
+      exportedAt: new Date().toISOString(),
+      requests: this.list()
+    };
+  }
+
+  loadSession(session: InspectorSessionExport): CapturedRequest[] {
+    this.requests = new Map(session.requests.map((request) => [request.id, request]));
+    this.prune();
+    const requests = this.list();
+    this.emit({ type: "snapshot", requests });
+    return requests;
   }
 
   start(request: CapturedRequest): void {
@@ -52,4 +86,3 @@ export class EventStore {
     for (const request of all.slice(MAX_REQUESTS)) this.requests.delete(request.id);
   }
 }
-

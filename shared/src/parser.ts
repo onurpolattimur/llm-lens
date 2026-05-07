@@ -55,6 +55,9 @@ export function normalizeTrace(request: CapturedRequest): LlmTrace {
   if (provider === "openai") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? []);
   if (provider === "openrouter") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? [], "openrouter");
   if (provider === "google") return normalizeGoogle(request.id, body, response);
+  if (isAnthropicCompatibleRequest(request, body, response)) {
+    return normalizeAnthropic(request.id, body, response, request.streamChunks ?? [], provider);
+  }
 
   return {
     requestId: request.id,
@@ -68,7 +71,8 @@ function normalizeAnthropic(
   requestId: string,
   body: Record<string, unknown>,
   response: Record<string, unknown>,
-  chunks: StreamChunk[]
+  chunks: StreamChunk[],
+  provider: Provider = "anthropic"
 ): LlmTrace {
   const outputMessages = normalizeAnthropicContent(response.content);
   const toolCalls = extractAnthropicToolCalls(response.content);
@@ -135,7 +139,7 @@ function normalizeAnthropic(
 
   return {
     requestId,
-    provider: "anthropic",
+    provider,
     model: stringValue(body.model) ?? stringValue(response.model),
     inputMessages: [...normalizeAnthropicSystem(body.system), ...normalizeMessageArray(body.messages)],
     outputMessages: dedupeMessages(outputMessages),
@@ -143,6 +147,17 @@ function normalizeAnthropic(
     reasoning,
     usage
   };
+}
+
+function isAnthropicCompatibleRequest(
+  request: CapturedRequest,
+  body: Record<string, unknown>,
+  response: Record<string, unknown>
+): boolean {
+  const path = request.path.toLowerCase().split("?")[0] ?? request.path.toLowerCase();
+  if (path === "/v1/messages") return true;
+  if (Array.isArray(response.content) && Array.isArray(body.messages)) return true;
+  return false;
 }
 
 function normalizeOpenAi(

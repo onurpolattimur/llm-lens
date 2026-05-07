@@ -13,7 +13,6 @@
     "dev:open": "concurrently -n backend,frontend -c green,yellow \"npm run dev --workspace @llm-inspector/backend -- --open\" \"npm run dev --workspace @llm-inspector/frontend\"",
     "dev:backend": "npm run dev --workspace @llm-inspector/backend",
     "dev:frontend": "npm run dev --workspace @llm-inspector/frontend",
-    "opencode": "tsx --conditions=development backend/src/cli/index.ts opencode",
     "build": "npm run build --workspace @llm-inspector/shared && npm run build --workspace @llm-inspector/backend && node scripts/patch-built-imports.mjs && npm run build --workspace @llm-inspector/frontend",
     "prepack": "npm run build",
     "typecheck": "npm run typecheck --workspaces --if-present"

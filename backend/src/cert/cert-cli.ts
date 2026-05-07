@@ -33,9 +33,6 @@ export async function printInstallInstructions(): Promise<void> {
   console.log("macOS system trust:");
   console.log(`  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "${certPath}"`);
   console.log("");
-  console.log("opencode/Bun:");
-  console.log("  opencode is packaged with Bun, so prefer macOS system trust over NODE_EXTRA_CA_CERTS.");
-  console.log("");
   console.log("Node.js process trust:");
   console.log(`  export NODE_EXTRA_CA_CERTS="${certPath}"`);
   console.log("");
