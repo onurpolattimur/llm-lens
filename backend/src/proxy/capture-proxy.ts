@@ -1,4 +1,5 @@
 import { Proxy, type IContext } from "http-mitm-proxy";
+import net from "node:net";
 import { nanoid } from "nanoid";
 import { brotliDecompressSync, gunzipSync, inflateSync, unzipSync } from "node:zlib";
 import {
@@ -41,6 +42,32 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
     const id = getState(ctx)?.id;
     if (id) options.store.update(id, { error: `${kind ?? "proxy"}: ${err?.message ?? "unknown error"}` });
     else console.error("proxy error:", kind, err);
+  });
+
+  proxy.onConnect((req, socket, head, callback) => {
+    const host = headerValue(req.url);
+    if (!host || isAllowedLlmHost(host, options.additionalProviderHosts)) {
+      return callback();
+    }
+
+    const [hostname, portText] = host.split(":", 2);
+    const port = Number(portText ?? "443");
+    const conn = net.connect({ host: hostname, port, allowHalfOpen: true }, () => {
+      conn.on("finish", () => socket.destroy());
+      socket.on("close", () => conn.end());
+      socket.write("HTTP/1.1 200 OK\r\n\r\n", "utf8", () => {
+        conn.pipe(socket);
+        socket.pipe(conn);
+        if (head.length > 0) socket.emit("data", head);
+      });
+    });
+    conn.on("error", (error) => {
+      console.error("proxy tunnel error:", error);
+      socket.destroy();
+    });
+    socket.on("error", (error) => {
+      console.error("proxy tunnel socket error:", error);
+    });
   });
 
   proxy.onRequest((ctx, callback) => {
