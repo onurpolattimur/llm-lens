@@ -1,5 +1,6 @@
 import { Proxy, type IContext } from "http-mitm-proxy";
 import { nanoid } from "nanoid";
+import { brotliDecompressSync, gunzipSync, inflateSync, unzipSync } from "node:zlib";
 import {
   detectProvider,
   isAllowedLlmHost,
@@ -111,7 +112,7 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
       state.responseBytes += chunk.length;
       state.responseChunks.push(chunk);
 
-      if (isSse(ctx.serverToProxyResponse?.headers["content-type"])) {
+      if (isSse(ctx.serverToProxyResponse?.headers["content-type"]) && !hasEncodedBody(ctx)) {
         for (const parsed of parseSseChunks(state.id, chunk.toString("utf8"))) {
           options.store.addChunk(state.id, parsed);
         }
@@ -123,7 +124,8 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
   proxy.onResponseEnd((ctx, callback) => {
     const state = getState(ctx);
     if (state?.capture) {
-      const responseText = Buffer.concat(state.responseChunks).toString("utf8");
+      const responseBuffer = decodeResponseBuffer(Buffer.concat(state.responseChunks), ctx);
+      const responseText = responseBuffer.toString("utf8");
       const current = options.store.get(state.id);
       const sseChunks = isSse(ctx.serverToProxyResponse?.headers["content-type"])
         ? parseSseChunks(state.id, responseText)
@@ -170,6 +172,33 @@ function buildUrl(ctx: IContext, host: string): string {
 function isSse(contentType: string | string[] | undefined): boolean {
   const value = Array.isArray(contentType) ? contentType.join(",") : contentType ?? "";
   return value.toLowerCase().includes("text/event-stream");
+}
+
+function hasEncodedBody(ctx: IContext): boolean {
+  return contentEncodings(ctx).length > 0;
+}
+
+function decodeResponseBuffer(buffer: Buffer, ctx: IContext): Buffer {
+  let decoded = buffer;
+  for (const encoding of [...contentEncodings(ctx)].reverse()) {
+    try {
+      if (encoding === "gzip" || encoding === "x-gzip") decoded = gunzipSync(decoded);
+      else if (encoding === "br") decoded = brotliDecompressSync(decoded);
+      else if (encoding === "deflate") decoded = inflateSync(decoded);
+      else if (encoding === "zlib") decoded = unzipSync(decoded);
+    } catch {
+      return buffer;
+    }
+  }
+  return decoded;
+}
+
+function contentEncodings(ctx: IContext): string[] {
+  const value = headerValue(ctx.serverToProxyResponse?.headers["content-encoding"]);
+  return value
+    .split(",")
+    .map((encoding) => encoding.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 function headerValue(value: string | string[] | undefined): string {
