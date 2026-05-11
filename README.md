@@ -1,5 +1,10 @@
 # LLM Lens
 
+[![npm version](https://img.shields.io/npm/v/llm-lens.svg)](https://www.npmjs.com/package/llm-lens)
+[![npm downloads](https://img.shields.io/npm/dm/llm-lens.svg)](https://www.npmjs.com/package/llm-lens)
+[![Node.js](https://img.shields.io/node/v/llm-lens.svg)](https://www.npmjs.com/package/llm-lens)
+[![Publish to npm](https://github.com/onurpolattimur/llm-lens/actions/workflows/npm-publish.yml/badge.svg)](https://github.com/onurpolattimur/llm-lens/actions/workflows/npm-publish.yml)
+
 LLM Lens is a local debugging proxy and web UI for inspecting LLM API traffic.
 It is built for developers working with coding agents, SDKs, and agentic workflows
 who need to understand exactly what their tools send to and receive from model
@@ -8,7 +13,7 @@ providers.
 The project works like a local MITM proxy: start LLM Lens, point your tool at
 the local proxy, trust the generated local CA certificate, and watch requests and
 responses appear in the browser. Instead of showing only generic HTTP traffic, LLM
-Tap parses provider payloads into a normalized conversation trace with
+Lens parses provider payloads into a normalized conversation trace with
 messages, tool calls, reasoning blocks, streaming chunks, headers, latency, and
 token usage when the provider returns it.
 
