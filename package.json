@@ -20,7 +20,7 @@
     "openai",
     "anthropic"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "workspaces": [
     "backend",
     "frontend",
