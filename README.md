@@ -17,6 +17,8 @@ Lens parses provider payloads into a normalized conversation trace with
 messages, tool calls, reasoning blocks, streaming chunks, headers, latency, and
 token usage when the provider returns it.
 
+![LLM Lens web UI showing captured LLM requests](https://raw.githubusercontent.com/onurpolattimur/llm-lens/master/docs/assets/llm-lens-demo.gif)
+
 ## Features
 
 - Local HTTP/HTTPS proxy for LLM provider traffic.
