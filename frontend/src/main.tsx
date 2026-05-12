@@ -13,6 +13,7 @@ import {
   Moon,
   Radio,
   Rows3,
+  Search,
   Sun,
   Trash2,
   Upload,
@@ -26,6 +27,16 @@ import type {
   NormalizedReasoning,
   NormalizedToolCall
 } from "@llm-lens/shared";
+import {
+  getTimelineSummary,
+  getUsageSummary,
+  retainSelectedRequestId,
+  toggleSelectedRequestId,
+  toolCallCount
+} from "./request-metrics";
+import { applyInspectorEvent } from "./request-events";
+import { filterTimelineRequests } from "./request-search";
+import { clearCapturedRequests, deleteCapturedRequest, exportSessionFile, importSessionFile } from "./session-actions";
 import "./styles.css";
 
 declare global {
@@ -57,15 +68,17 @@ function App() {
   const [sessionBusy, setSessionBusy] = React.useState<"export" | "import" | undefined>();
   const [deleteBusy, setDeleteBusy] = React.useState<string | undefined>();
   const [sessionError, setSessionError] = React.useState<string | undefined>();
+  const [timelineQuery, setTimelineQuery] = React.useState("");
   const importInputRef = React.useRef<HTMLInputElement>(null);
   const theme = useThemePreference();
+  const filteredRequests = React.useMemo(() => filterTimelineRequests(requests, timelineQuery), [requests, timelineQuery]);
 
   React.useEffect(() => {
     fetch(`${API_BASE}/api/requests`)
       .then((response) => response.json())
       .then((data: CapturedRequest[]) => {
         setRequests(data);
-        setSelectedId((current) => (current && data.some((request) => request.id === current) ? current : undefined));
+        setSelectedId((current) => retainSelectedRequestId(current, data));
       })
       .catch(() => undefined);
 
@@ -74,7 +87,7 @@ function App() {
     socket.addEventListener("close", () => setConnected(false));
     socket.addEventListener("message", (message) => {
       const event = JSON.parse(message.data) as InspectorEvent;
-      setRequests((current) => applyEvent(current, event));
+      setRequests((current) => applyInspectorEvent(current, event));
       if (event.type === "request:delete") setSelectedId((current) => (current === event.requestId ? undefined : current));
       if (event.type === "requests:clear") setSelectedId(undefined);
     });
@@ -82,23 +95,20 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    setSelectedId((current) => (current && requests.some((request) => request.id === current) ? current : undefined));
+    setSelectedId((current) => retainSelectedRequestId(current, requests));
   }, [requests]);
 
-  const selected = selectedId ? requests.find((request) => request.id === selectedId) : undefined;
+  const selected = selectedId ? filteredRequests.find((request) => request.id === selectedId) : undefined;
 
   function toggleSelectedRequest(id: string) {
-    setSelectedId((current) => (current === id ? undefined : id));
+    setSelectedId((current) => toggleSelectedRequestId(current, id));
   }
 
   async function exportSession() {
     setSessionBusy("export");
     setSessionError(undefined);
     try {
-      const response = await fetch(`${API_BASE}/api/session/export`);
-      if (!response.ok) throw new Error("Export failed");
-      const blob = await response.blob();
-      downloadBlob(blob, getFilename(response.headers.get("content-disposition")) ?? defaultExportFilename());
+      await exportSessionFile(API_BASE, fetch, downloadBlob);
     } catch {
       setSessionError("Session export failed.");
     } finally {
@@ -111,15 +121,9 @@ function App() {
     setSessionBusy("import");
     setSessionError(undefined);
     try {
-      const session = JSON.parse(await file.text()) as unknown;
-      const response = await fetch(`${API_BASE}/api/session/import`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(session)
-      });
-      if (!response.ok) throw new Error("Import failed");
-      const data = (await response.json()) as { requests: CapturedRequest[] };
-      setRequests(data.requests);
+      const importedRequests = await importSessionFile(API_BASE, file, fetch);
+      if (!importedRequests) return;
+      setRequests(importedRequests);
       setSelectedId(undefined);
     } catch {
       setSessionError("Session load failed.");
@@ -134,8 +138,7 @@ function App() {
     setDeleteBusy("all");
     setSessionError(undefined);
     try {
-      const response = await fetch(`${API_BASE}/api/requests`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Clear failed");
+      await clearCapturedRequests(API_BASE, fetch);
       setRequests([]);
       setSelectedId(undefined);
     } catch {
@@ -149,8 +152,7 @@ function App() {
     setDeleteBusy(id);
     setSessionError(undefined);
     try {
-      const response = await fetch(`${API_BASE}/api/requests/${encodeURIComponent(id)}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Delete failed");
+      await deleteCapturedRequest(API_BASE, id, fetch);
       setRequests((current) => current.filter((request) => request.id !== id));
     } catch {
       setSessionError("Request could not be deleted.");
@@ -206,13 +208,31 @@ function App() {
           <div className="panel-heading">
             <Rows3 size={18} />
             <span>Timeline</span>
-            <strong>{requests.length}</strong>
+            <strong>{filteredRequests.length}{timelineQuery.trim() ? ` / ${requests.length}` : ""}</strong>
+          </div>
+          <div className="timeline-controls">
+            <label className="timeline-search">
+              <Search size={16} />
+              <input
+                type="search"
+                placeholder="Search conversations"
+                value={timelineQuery}
+                onChange={(event) => setTimelineQuery(event.currentTarget.value)}
+              />
+            </label>
+            {timelineQuery.trim() ? (
+              <div className="timeline-filter-meta">
+                <span>{filteredRequests.length} match{filteredRequests.length === 1 ? "" : "es"}</span>
+              </div>
+            ) : null}
           </div>
           <div className="timeline-list">
             {requests.length === 0 ? (
               <EmptyTimeline />
+            ) : filteredRequests.length === 0 ? (
+              <EmptyTimelineSearch query={timelineQuery} />
             ) : (
-              requests.map((request) => (
+              filteredRequests.map((request) => (
                 <article
                   className={`timeline-item ${request.id === selectedId ? "selected" : ""}`}
                   key={request.id}
@@ -289,15 +309,21 @@ function App() {
                 {tab === "chunks" && <JsonBlock value={selected.streamChunks ?? []} />}
               </div>
             </>
-          ) : requests.length > 0 ? (
+          ) : filteredRequests.length > 0 ? (
             <>
-              <TimelineSummaryHeader requests={requests} />
+              <TimelineSummaryHeader requests={filteredRequests} totalRequests={requests.length} filtered={timelineQuery.trim().length > 0} />
               <div className="empty-detail">
                 <Activity size={36} />
-                <h2>Timeline totals</h2>
-                <p>{requests.length} captured request{requests.length === 1 ? "" : "s"}</p>
+                <h2>{timelineQuery.trim() ? "Filtered totals" : "Timeline totals"}</h2>
+                <p>{filteredRequests.length} captured request{filteredRequests.length === 1 ? "" : "s"}</p>
               </div>
             </>
+          ) : requests.length > 0 ? (
+            <div className="empty-detail">
+              <Search size={36} />
+              <h2>No matches</h2>
+              <p>Try another conversation search.</p>
+            </div>
           ) : (
             <div className="empty-detail">
               <Activity size={36} />
@@ -443,7 +469,7 @@ function RequestHeader({ request }: { request: CapturedRequest }) {
   );
 }
 
-function TimelineSummaryHeader({ requests }: { requests: CapturedRequest[] }) {
+function TimelineSummaryHeader({ requests, totalRequests, filtered }: { requests: CapturedRequest[]; totalRequests: number; filtered: boolean }) {
   const summary = getTimelineSummary(requests);
 
   return (
@@ -451,8 +477,8 @@ function TimelineSummaryHeader({ requests }: { requests: CapturedRequest[] }) {
       <div>
         <div className="route-line">
           <span className="provider provider-summary">All</span>
-          <strong>Timeline</strong>
-          <code>{requests.length} request{requests.length === 1 ? "" : "s"}</code>
+          <strong>{filtered ? "Filtered" : "Timeline"}</strong>
+          <code>{requests.length}{filtered ? ` / ${totalRequests}` : ""} request{requests.length === 1 ? "" : "s"}</code>
         </div>
         <div className="url-line">{formatSummaryWindow(summary.firstStartedAt, summary.lastStartedAt)}</div>
       </div>
@@ -610,114 +636,6 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
       <strong>{value}</strong>
     </div>
   );
-}
-
-type UsageSummary = {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  cachedTokens?: number;
-  billableTokens?: number;
-  costUsd?: number;
-};
-
-type TimelineSummary = {
-  usage: UsageSummary;
-  toolCalls: number;
-  completedRequests: number;
-  totalDurationMs?: number;
-  firstStartedAt?: string;
-  lastStartedAt?: string;
-};
-
-function getUsageSummary(request: CapturedRequest): UsageSummary {
-  const directUsage = mergeUsageSummaries(usageFromUnknown(responseUsage(request.responseBody)), usageFromUnknown(request.trace?.usage));
-  const streamedUsage = usageFromStreamChunks(request);
-  return withBillableTokens(mergeUsageSummaries(directUsage, streamedUsage));
-}
-
-function getTimelineSummary(requests: CapturedRequest[]): TimelineSummary {
-  const usageSummaries = requests.map(getUsageSummary);
-  const startedAtValues = requests.map((request) => request.startedAt);
-
-  return {
-    usage: sumUsageSummaries(usageSummaries),
-    toolCalls: requests.reduce((total, request) => total + toolCallCount(request), 0),
-    completedRequests: requests.filter((request) => request.statusCode !== undefined || request.completedAt !== undefined || request.durationMs !== undefined).length,
-    totalDurationMs: sumDefinedNumbers(requests.map((request) => request.durationMs)),
-    firstStartedAt: minIsoDate(startedAtValues),
-    lastStartedAt: maxIsoDate(startedAtValues)
-  };
-}
-
-function sumUsageSummaries(summaries: UsageSummary[]): UsageSummary {
-  return withBillableTokens({
-    inputTokens: sumDefinedNumbers(summaries.map((summary) => summary.inputTokens)),
-    outputTokens: sumDefinedNumbers(summaries.map((summary) => summary.outputTokens)),
-    totalTokens: sumDefinedNumbers(summaries.map((summary) => summary.totalTokens)),
-    cachedTokens: sumDefinedNumbers(summaries.map((summary) => summary.cachedTokens)),
-    billableTokens: sumDefinedNumbers(summaries.map((summary) => summary.billableTokens)),
-    costUsd: sumDefinedNumbers(summaries.map((summary) => summary.costUsd))
-  });
-}
-
-function usageFromStreamChunks(request: CapturedRequest): UsageSummary | undefined {
-  for (let index = (request.streamChunks?.length ?? 0) - 1; index >= 0; index -= 1) {
-    const usage = usageFromUnknown(responseUsage(request.streamChunks?.[index]?.parsed));
-    if (usage) return usage;
-  }
-  return undefined;
-}
-
-function responseUsage(value: unknown): unknown {
-  return isRecord(value) ? value.usage ?? value.usageMetadata : undefined;
-}
-
-function usageFromUnknown(value: unknown): UsageSummary | undefined {
-  if (!isRecord(value)) return undefined;
-  const promptDetails = isRecord(value.prompt_tokens_details) ? value.prompt_tokens_details : undefined;
-  const summary = {
-    inputTokens: numberValue(value.prompt_tokens ?? value.input_tokens ?? value.promptTokenCount ?? value.inputTokens),
-    outputTokens: numberValue(value.completion_tokens ?? value.output_tokens ?? value.candidatesTokenCount ?? value.outputTokens),
-    totalTokens: numberValue(value.total_tokens ?? value.totalTokenCount ?? value.totalTokens),
-    cachedTokens: numberValue(value.cachedTokens ?? value.cache_read_input_tokens ?? value.cachedContentTokenCount ?? promptDetails?.cached_tokens),
-    costUsd: numberValue(value.cost)
-  };
-  return Object.values(summary).some((item) => item !== undefined) ? summary : undefined;
-}
-
-function mergeUsageSummaries(base: UsageSummary | undefined, override: UsageSummary | undefined): UsageSummary {
-  return { ...base, ...withoutUndefined(override) };
-}
-
-function withoutUndefined(value: UsageSummary | undefined): Partial<UsageSummary> {
-  if (!value) return {};
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<UsageSummary>;
-}
-
-function withBillableTokens(usage: UsageSummary): UsageSummary {
-  const totalTokens = usage.totalTokens ?? sumTokens(usage.inputTokens, usage.outputTokens);
-  const usageWithTotal = totalTokens === undefined || usage.totalTokens !== undefined ? usage : { ...usage, totalTokens };
-  if (totalTokens === undefined || usage.cachedTokens === undefined) return usageWithTotal;
-  return { ...usageWithTotal, billableTokens: Math.max(totalTokens - usage.cachedTokens, 0) };
-}
-
-function sumTokens(inputTokens: number | undefined, outputTokens: number | undefined): number | undefined {
-  if (inputTokens === undefined && outputTokens === undefined) return undefined;
-  return (inputTokens ?? 0) + (outputTokens ?? 0);
-}
-
-function sumDefinedNumbers(values: Array<number | undefined>): number | undefined {
-  let total = 0;
-  let hasValue = false;
-
-  for (const value of values) {
-    if (value === undefined) continue;
-    total += value;
-    hasValue = true;
-  }
-
-  return hasValue ? total : undefined;
 }
 
 function formatCost(value: number | undefined): string {
@@ -896,22 +814,13 @@ function EmptyTimeline() {
   );
 }
 
-function applyEvent(current: CapturedRequest[], event: InspectorEvent): CapturedRequest[] {
-  if (event.type === "snapshot") return event.requests;
-  if (event.type === "request:start") return [event.request, ...current.filter((request) => request.id !== event.request.id)];
-  if (event.type === "request:update") {
-    return current.map((request) => (request.id === event.request.id ? event.request : request));
-  }
-  if (event.type === "stream:chunk") {
-    return current.map((request) =>
-      request.id === event.requestId
-        ? { ...request, streamChunks: [...(request.streamChunks ?? []), event.chunk], streaming: true }
-        : request
-    );
-  }
-  if (event.type === "request:delete") return current.filter((request) => request.id !== event.requestId);
-  if (event.type === "requests:clear") return [];
-  return current;
+function EmptyTimelineSearch({ query }: { query: string }) {
+  return (
+    <div className="empty-timeline">
+      <Search size={32} />
+      <p>No conversations match "{query.trim()}".</p>
+    </div>
+  );
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -923,15 +832,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function getFilename(contentDisposition: string | null): string | undefined {
-  const match = contentDisposition?.match(/filename="([^"]+)"/);
-  return match?.[1];
-}
-
-function defaultExportFilename(): string {
-  return `llm-lens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
 }
 
 function formatTime(value: string): string {
@@ -953,46 +853,10 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function toolCallCount(request: CapturedRequest): number {
-  return request.trace?.toolCalls?.length ?? 0;
-}
-
 function summarize(value: string, limit: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, limit - 1)}...`;
-}
-
-function minIsoDate(values: string[]): string | undefined {
-  return selectIsoDate(values, (current, candidate) => candidate < current);
-}
-
-function maxIsoDate(values: string[]): string | undefined {
-  return selectIsoDate(values, (current, candidate) => candidate > current);
-}
-
-function selectIsoDate(values: string[], shouldReplace: (current: number, candidate: number) => boolean): string | undefined {
-  let selectedValue: string | undefined;
-  let selectedTime: number | undefined;
-
-  for (const value of values) {
-    const time = Date.parse(value);
-    if (Number.isNaN(time)) continue;
-    if (selectedTime === undefined || shouldReplace(selectedTime, time)) {
-      selectedTime = time;
-      selectedValue = value;
-    }
-  }
-
-  return selectedValue;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -254,7 +254,7 @@ h1 {
 .timeline {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-right: 1px solid var(--line);
   background: var(--timeline-bg);
 }
@@ -273,6 +273,51 @@ h1 {
 .panel-heading strong {
   margin-left: auto;
   color: var(--text);
+}
+
+.timeline-controls {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--line);
+}
+
+.timeline-search {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--faint);
+}
+
+.timeline-search:focus-within {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.timeline-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.timeline-search input::placeholder {
+  color: var(--faint);
+}
+
+.timeline-filter-meta {
+  display: flex;
+  justify-content: flex-end;
+  color: var(--faint);
+  font-size: 0.75rem;
 }
 
 .timeline-list {
