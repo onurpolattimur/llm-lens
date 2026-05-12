@@ -65,7 +65,7 @@ function App() {
       .then((response) => response.json())
       .then((data: CapturedRequest[]) => {
         setRequests(data);
-        setSelectedId((current) => current ?? data[0]?.id);
+        setSelectedId((current) => (current && data.some((request) => request.id === current) ? current : undefined));
       })
       .catch(() => undefined);
 
@@ -75,7 +75,6 @@ function App() {
     socket.addEventListener("message", (message) => {
       const event = JSON.parse(message.data) as InspectorEvent;
       setRequests((current) => applyEvent(current, event));
-      if (event.type === "request:start") setSelectedId((current) => current ?? event.request.id);
       if (event.type === "request:delete") setSelectedId((current) => (current === event.requestId ? undefined : current));
       if (event.type === "requests:clear") setSelectedId(undefined);
     });
@@ -83,10 +82,14 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    setSelectedId((current) => (current && requests.some((request) => request.id === current) ? current : requests[0]?.id));
+    setSelectedId((current) => (current && requests.some((request) => request.id === current) ? current : undefined));
   }, [requests]);
 
-  const selected = requests.find((request) => request.id === selectedId) ?? requests[0];
+  const selected = selectedId ? requests.find((request) => request.id === selectedId) : undefined;
+
+  function toggleSelectedRequest(id: string) {
+    setSelectedId((current) => (current === id ? undefined : id));
+  }
 
   async function exportSession() {
     setSessionBusy("export");
@@ -117,7 +120,7 @@ function App() {
       if (!response.ok) throw new Error("Import failed");
       const data = (await response.json()) as { requests: CapturedRequest[] };
       setRequests(data.requests);
-      setSelectedId(data.requests[0]?.id);
+      setSelectedId(undefined);
     } catch {
       setSessionError("Session load failed.");
     } finally {
@@ -211,13 +214,13 @@ function App() {
             ) : (
               requests.map((request) => (
                 <article
-                  className={`timeline-item ${request.id === selected?.id ? "selected" : ""}`}
+                  className={`timeline-item ${request.id === selectedId ? "selected" : ""}`}
                   key={request.id}
-                  onClick={() => setSelectedId(request.id)}
+                  onClick={() => toggleSelectedRequest(request.id)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedId(request.id);
+                      toggleSelectedRequest(request.id);
                     }
                   }}
                   role="button"
@@ -284,6 +287,15 @@ function App() {
                 {tab === "raw" && <JsonBlock value={{ request: selected.requestBody, response: selected.responseBody }} />}
                 {tab === "headers" && <JsonBlock value={{ request: selected.requestHeaders, response: selected.responseHeaders }} />}
                 {tab === "chunks" && <JsonBlock value={selected.streamChunks ?? []} />}
+              </div>
+            </>
+          ) : requests.length > 0 ? (
+            <>
+              <TimelineSummaryHeader requests={requests} />
+              <div className="empty-detail">
+                <Activity size={36} />
+                <h2>Timeline totals</h2>
+                <p>{requests.length} captured request{requests.length === 1 ? "" : "s"}</p>
               </div>
             </>
           ) : (
@@ -424,8 +436,36 @@ function RequestHeader({ request }: { request: CapturedRequest }) {
         <Metric label="In / Out" value={formatTokenPair(usage.inputTokens, usage.outputTokens)} />
         <Metric label="Tools" value={toolCallCount(request) || "-"} />
         <Metric label="Status" value={request.statusCode ?? "-"} />
-        <Metric label="Duration" value={request.durationMs ? `${request.durationMs}ms` : "-"} />
+        <Metric label="Duration" value={formatDuration(request.durationMs)} />
         <Metric label="Started" value={formatTime(request.startedAt)} />
+      </div>
+    </div>
+  );
+}
+
+function TimelineSummaryHeader({ requests }: { requests: CapturedRequest[] }) {
+  const summary = getTimelineSummary(requests);
+
+  return (
+    <div className="request-header">
+      <div>
+        <div className="route-line">
+          <span className="provider provider-summary">All</span>
+          <strong>Timeline</strong>
+          <code>{requests.length} request{requests.length === 1 ? "" : "s"}</code>
+        </div>
+        <div className="url-line">{formatSummaryWindow(summary.firstStartedAt, summary.lastStartedAt)}</div>
+      </div>
+      <div className="metrics">
+        <Metric label="Cost" value={formatCost(summary.usage.costUsd)} />
+        <Metric label="Tokens" value={formatTokens(summary.usage.totalTokens)} />
+        <Metric label="Cache Read" value={formatTokens(summary.usage.cachedTokens)} />
+        <Metric label="Charged Tokens" value={formatTokens(summary.usage.billableTokens)} />
+        <Metric label="In / Out" value={formatTokenPair(summary.usage.inputTokens, summary.usage.outputTokens)} />
+        <Metric label="Tools" value={summary.toolCalls || "-"} />
+        <Metric label="Completed" value={formatCompletionCount(summary.completedRequests, requests.length)} />
+        <Metric label="Duration" value={formatDuration(summary.totalDurationMs)} />
+        <Metric label="Started" value={summary.firstStartedAt ? formatTime(summary.firstStartedAt) : "-"} />
       </div>
     </div>
   );
@@ -581,10 +621,44 @@ type UsageSummary = {
   costUsd?: number;
 };
 
+type TimelineSummary = {
+  usage: UsageSummary;
+  toolCalls: number;
+  completedRequests: number;
+  totalDurationMs?: number;
+  firstStartedAt?: string;
+  lastStartedAt?: string;
+};
+
 function getUsageSummary(request: CapturedRequest): UsageSummary {
   const directUsage = mergeUsageSummaries(usageFromUnknown(responseUsage(request.responseBody)), usageFromUnknown(request.trace?.usage));
   const streamedUsage = usageFromStreamChunks(request);
   return withBillableTokens(mergeUsageSummaries(directUsage, streamedUsage));
+}
+
+function getTimelineSummary(requests: CapturedRequest[]): TimelineSummary {
+  const usageSummaries = requests.map(getUsageSummary);
+  const startedAtValues = requests.map((request) => request.startedAt);
+
+  return {
+    usage: sumUsageSummaries(usageSummaries),
+    toolCalls: requests.reduce((total, request) => total + toolCallCount(request), 0),
+    completedRequests: requests.filter((request) => request.statusCode !== undefined || request.completedAt !== undefined || request.durationMs !== undefined).length,
+    totalDurationMs: sumDefinedNumbers(requests.map((request) => request.durationMs)),
+    firstStartedAt: minIsoDate(startedAtValues),
+    lastStartedAt: maxIsoDate(startedAtValues)
+  };
+}
+
+function sumUsageSummaries(summaries: UsageSummary[]): UsageSummary {
+  return withBillableTokens({
+    inputTokens: sumDefinedNumbers(summaries.map((summary) => summary.inputTokens)),
+    outputTokens: sumDefinedNumbers(summaries.map((summary) => summary.outputTokens)),
+    totalTokens: sumDefinedNumbers(summaries.map((summary) => summary.totalTokens)),
+    cachedTokens: sumDefinedNumbers(summaries.map((summary) => summary.cachedTokens)),
+    billableTokens: sumDefinedNumbers(summaries.map((summary) => summary.billableTokens)),
+    costUsd: sumDefinedNumbers(summaries.map((summary) => summary.costUsd))
+  });
 }
 
 function usageFromStreamChunks(request: CapturedRequest): UsageSummary | undefined {
@@ -603,9 +677,9 @@ function usageFromUnknown(value: unknown): UsageSummary | undefined {
   if (!isRecord(value)) return undefined;
   const promptDetails = isRecord(value.prompt_tokens_details) ? value.prompt_tokens_details : undefined;
   const summary = {
-    inputTokens: numberValue(value.prompt_tokens ?? value.input_tokens ?? value.promptTokenCount),
-    outputTokens: numberValue(value.completion_tokens ?? value.output_tokens ?? value.candidatesTokenCount),
-    totalTokens: numberValue(value.total_tokens ?? value.totalTokenCount),
+    inputTokens: numberValue(value.prompt_tokens ?? value.input_tokens ?? value.promptTokenCount ?? value.inputTokens),
+    outputTokens: numberValue(value.completion_tokens ?? value.output_tokens ?? value.candidatesTokenCount ?? value.outputTokens),
+    totalTokens: numberValue(value.total_tokens ?? value.totalTokenCount ?? value.totalTokens),
     cachedTokens: numberValue(value.cachedTokens ?? value.cache_read_input_tokens ?? value.cachedContentTokenCount ?? promptDetails?.cached_tokens),
     costUsd: numberValue(value.cost)
   };
@@ -623,13 +697,27 @@ function withoutUndefined(value: UsageSummary | undefined): Partial<UsageSummary
 
 function withBillableTokens(usage: UsageSummary): UsageSummary {
   const totalTokens = usage.totalTokens ?? sumTokens(usage.inputTokens, usage.outputTokens);
-  if (totalTokens === undefined || usage.cachedTokens === undefined) return usage;
-  return { ...usage, billableTokens: Math.max(totalTokens - usage.cachedTokens, 0) };
+  const usageWithTotal = totalTokens === undefined || usage.totalTokens !== undefined ? usage : { ...usage, totalTokens };
+  if (totalTokens === undefined || usage.cachedTokens === undefined) return usageWithTotal;
+  return { ...usageWithTotal, billableTokens: Math.max(totalTokens - usage.cachedTokens, 0) };
 }
 
 function sumTokens(inputTokens: number | undefined, outputTokens: number | undefined): number | undefined {
   if (inputTokens === undefined && outputTokens === undefined) return undefined;
   return (inputTokens ?? 0) + (outputTokens ?? 0);
+}
+
+function sumDefinedNumbers(values: Array<number | undefined>): number | undefined {
+  let total = 0;
+  let hasValue = false;
+
+  for (const value of values) {
+    if (value === undefined) continue;
+    total += value;
+    hasValue = true;
+  }
+
+  return hasValue ? total : undefined;
 }
 
 function formatCost(value: number | undefined): string {
@@ -647,6 +735,22 @@ function formatTokens(value: number | undefined): string {
 function formatTokenPair(input: number | undefined, output: number | undefined): string {
   if (input === undefined && output === undefined) return "-";
   return `${formatTokens(input)} / ${formatTokens(output)}`;
+}
+
+function formatDuration(value: number | undefined): string {
+  if (value === undefined) return "-";
+  return `${value}ms`;
+}
+
+function formatCompletionCount(completed: number, total: number): string {
+  if (total === 0) return "-";
+  return `${completed} / ${total}`;
+}
+
+function formatSummaryWindow(firstStartedAt: string | undefined, lastStartedAt: string | undefined): string {
+  if (!firstStartedAt && !lastStartedAt) return "No captured requests";
+  if (!firstStartedAt || !lastStartedAt || firstStartedAt === lastStartedAt) return `Captured at ${formatTime(firstStartedAt ?? lastStartedAt!)}`;
+  return `${formatTime(firstStartedAt)} - ${formatTime(lastStartedAt)}`;
 }
 
 function formatProxyUrl(value: string): string {
@@ -857,6 +961,30 @@ function summarize(value: string, limit: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, limit - 1)}...`;
+}
+
+function minIsoDate(values: string[]): string | undefined {
+  return selectIsoDate(values, (current, candidate) => candidate < current);
+}
+
+function maxIsoDate(values: string[]): string | undefined {
+  return selectIsoDate(values, (current, candidate) => candidate > current);
+}
+
+function selectIsoDate(values: string[], shouldReplace: (current: number, candidate: number) => boolean): string | undefined {
+  let selectedValue: string | undefined;
+  let selectedTime: number | undefined;
+
+  for (const value of values) {
+    const time = Date.parse(value);
+    if (Number.isNaN(time)) continue;
+    if (selectedTime === undefined || shouldReplace(selectedTime, time)) {
+      selectedTime = time;
+      selectedValue = value;
+    }
+  }
+
+  return selectedValue;
 }
 
 function numberValue(value: unknown): number | undefined {

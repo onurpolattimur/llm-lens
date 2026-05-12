@@ -403,6 +403,10 @@ h1 {
   background: var(--provider-google-bg);
 }
 
+.provider-summary {
+  background: var(--panel-2);
+}
+
 .detail {
   min-width: 0;
   min-height: 0;
