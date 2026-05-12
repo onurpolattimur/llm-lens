@@ -52,12 +52,12 @@ export function normalizeTrace(request: CapturedRequest): LlmTrace {
   const response = isRecord(request.responseBody) ? request.responseBody : {};
 
   if (provider === "anthropic") return normalizeAnthropic(request.id, body, response, request.streamChunks ?? []);
-  if (provider === "openai") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? []);
-  if (provider === "openrouter") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? [], "openrouter");
-  if (provider === "google") return normalizeGoogle(request.id, body, response);
   if (isAnthropicCompatibleRequest(request, body, response)) {
     return normalizeAnthropic(request.id, body, response, request.streamChunks ?? [], provider);
   }
+  if (provider === "openai") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? []);
+  if (provider === "openrouter") return normalizeOpenAi(request.id, body, response, request.streamChunks ?? [], "openrouter");
+  if (provider === "google") return normalizeGoogle(request.id, body, response);
 
   return {
     requestId: request.id,
@@ -155,7 +155,7 @@ function isAnthropicCompatibleRequest(
   response: Record<string, unknown>
 ): boolean {
   const path = request.path.toLowerCase().split("?")[0] ?? request.path.toLowerCase();
-  if (path === "/v1/messages") return true;
+  if (path === "/v1/messages" || path.endsWith("/v1/messages")) return true;
   if (Array.isArray(response.content) && Array.isArray(body.messages)) return true;
   return false;
 }

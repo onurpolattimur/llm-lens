@@ -1,4 +1,5 @@
 import type { CapturedRequest, InspectorEvent, StreamChunk } from "@llm-lens/shared";
+import { normalizeTrace } from "@llm-lens/shared/parser";
 
 const MAX_REQUESTS = 500;
 
@@ -41,7 +42,10 @@ export class EventStore {
   }
 
   loadSession(session: InspectorSessionExport): CapturedRequest[] {
-    this.requests = new Map(session.requests.map((request) => [request.id, request]));
+    this.requests = new Map(session.requests.map((request) => {
+      const normalized = normalizeImportedRequest(request);
+      return [normalized.id, normalized];
+    }));
     this.prune();
     const requests = this.list();
     this.emit({ type: "snapshot", requests });
@@ -85,4 +89,12 @@ export class EventStore {
     const all = this.list();
     for (const request of all.slice(MAX_REQUESTS)) this.requests.delete(request.id);
   }
+}
+
+function normalizeImportedRequest(request: CapturedRequest): CapturedRequest {
+  if (request.requestBody === undefined && request.responseBody === undefined && (request.streamChunks?.length ?? 0) === 0) {
+    return request;
+  }
+
+  return { ...request, trace: normalizeTrace(request) };
 }
