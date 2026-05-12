@@ -78,7 +78,7 @@ function App() {
       .then((response) => response.json())
       .then((data: CapturedRequest[]) => {
         setRequests(data);
-        setSelectedId((current) => selectRequestId(current, data));
+        setSelectedId((current) => retainSelectedRequestId(current, data));
       })
       .catch(() => undefined);
 
@@ -95,7 +95,7 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    setSelectedId((current) => selectRequestId(current, requests));
+    setSelectedId((current) => retainSelectedRequestId(current, requests));
   }, [requests]);
 
   const selected = selectedId ? requests.find((request) => request.id === selectedId) : undefined;
@@ -124,7 +124,7 @@ function App() {
       const importedRequests = await importSessionFile(API_BASE, file, fetch);
       if (!importedRequests) return;
       setRequests(importedRequests);
-      setSelectedId(preferredRequestId(importedRequests));
+      setSelectedId(undefined);
     } catch {
       setSessionError("Session load failed.");
     } finally {
@@ -820,25 +820,6 @@ function EmptyTimelineSearch({ query }: { query: string }) {
       <Search size={32} />
       <p>No conversations match "{query.trim()}".</p>
     </div>
-  );
-}
-
-function selectRequestId(current: string | undefined, requests: CapturedRequest[]): string | undefined {
-  return retainSelectedRequestId(current, requests) ?? preferredRequestId(requests);
-}
-
-function preferredRequestId(requests: CapturedRequest[]): string | undefined {
-  return requests.find(hasConversationContent)?.id ?? requests[0]?.id;
-}
-
-function hasConversationContent(request: CapturedRequest): boolean {
-  const trace = request.trace;
-  return Boolean(
-    trace &&
-      ((trace.inputMessages?.length ?? 0) > 0 ||
-        (trace.outputMessages?.length ?? 0) > 0 ||
-        (trace.reasoning?.length ?? 0) > 0 ||
-        (trace.toolCalls?.length ?? 0) > 0)
   );
 }
 
