@@ -1,5 +1,9 @@
 import type { CapturedRequest } from "@llm-lens/shared";
 
+const MAX_SEARCH_TEXT_CHARS = 50_000;
+const MAX_SEARCH_VALUE_CHARS = 4_000;
+const MAX_SEARCH_ARRAY_ITEMS = 60;
+
 export function filterTimelineRequests(requests: CapturedRequest[], query: string): CapturedRequest[] {
   const terms = parseSearchTerms(query);
   if (terms.length === 0) return requests;
@@ -42,21 +46,23 @@ function getRequestSearchText(request: CapturedRequest): string {
   appendSearchValue(parts, request.trace?.outputMessages);
   appendSearchValue(parts, request.trace?.reasoning);
   appendSearchValue(parts, request.trace?.toolCalls);
-  appendSearchValue(parts, request.streamChunks?.map((chunk) => chunk.parsed));
 
   return normalizeSearchText(parts.join(" "));
 }
 
 function appendSearchValue(parts: string[], value: unknown, seen = new WeakSet<object>()) {
-  if (value === undefined || value === null) return;
+  if (value === undefined || value === null || searchTextLength(parts) >= MAX_SEARCH_TEXT_CHARS) return;
 
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    parts.push(String(value));
+    parts.push(String(value).slice(0, MAX_SEARCH_VALUE_CHARS));
     return;
   }
 
   if (Array.isArray(value)) {
-    value.forEach((item) => appendSearchValue(parts, item, seen));
+    for (const item of value.slice(0, MAX_SEARCH_ARRAY_ITEMS)) {
+      appendSearchValue(parts, item, seen);
+      if (searchTextLength(parts) >= MAX_SEARCH_TEXT_CHARS) break;
+    }
     return;
   }
 
@@ -68,6 +74,10 @@ function appendSearchValue(parts: string[], value: unknown, seen = new WeakSet<o
     parts.push(key);
     appendSearchValue(parts, item, seen);
   }
+}
+
+function searchTextLength(parts: string[]): number {
+  return parts.reduce((total, part) => total + part.length, 0);
 }
 
 function normalizeSearchText(value: string): string {

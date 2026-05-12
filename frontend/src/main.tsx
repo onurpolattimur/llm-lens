@@ -98,7 +98,7 @@ function App() {
     setSelectedId((current) => retainSelectedRequestId(current, requests));
   }, [requests]);
 
-  const selected = selectedId ? filteredRequests.find((request) => request.id === selectedId) : undefined;
+  const selected = selectedId ? requests.find((request) => request.id === selectedId) : undefined;
 
   function toggleSelectedRequest(id: string) {
     setSelectedId((current) => toggleSelectedRequestId(current, id));
