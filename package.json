@@ -32,8 +32,9 @@
     "dev:frontend": "npm run dev --workspace @llm-lens/frontend",
     "build": "npm run build --workspace @llm-lens/shared && npm run build --workspace @llm-lens/backend && node scripts/patch-built-imports.mjs && npm run build --workspace @llm-lens/frontend",
     "prepack": "npm run build",
+    "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run build --workspace @llm-lens/shared && npm run typecheck --workspace @llm-lens/backend && npm run typecheck --workspace @llm-lens/frontend",
-    "ci": "npm run typecheck && npm run build",
+    "ci": "npm run typecheck && npm test && npm run build",
     "pack:dry-run": "npm pack --dry-run"
   },
   "files": [

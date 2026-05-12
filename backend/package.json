@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "tsx --conditions=development src/cli/index.ts start --no-ui-server",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "start": "node dist/cli/index.js start"
   },
   "dependencies": {
