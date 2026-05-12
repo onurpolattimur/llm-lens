@@ -70,6 +70,7 @@ function App() {
   const [sessionError, setSessionError] = React.useState<string | undefined>();
   const [timelineQuery, setTimelineQuery] = React.useState("");
   const importInputRef = React.useRef<HTMLInputElement>(null);
+  const tabBodyRef = React.useRef<HTMLDivElement>(null);
   const theme = useThemePreference();
   const filteredRequests = React.useMemo(() => filterTimelineRequests(requests, timelineQuery), [requests, timelineQuery]);
 
@@ -98,6 +99,10 @@ function App() {
     setSelectedId((current) => retainSelectedRequestId(current, requests));
   }, [requests]);
 
+  React.useEffect(() => {
+    tabBodyRef.current?.scrollTo({ top: 0, left: 0 });
+  }, [selectedId, tab]);
+
   const selected = selectedId ? requests.find((request) => request.id === selectedId) : undefined;
 
   function toggleSelectedRequest(id: string) {
@@ -122,11 +127,10 @@ function App() {
     setSessionError(undefined);
     try {
       const importedRequests = await importSessionFile(API_BASE, file, fetch);
-      if (!importedRequests) return;
-      setRequests(importedRequests);
+      if (importedRequests) setRequests(importedRequests);
       setSelectedId(undefined);
-    } catch {
-      setSessionError("Session load failed.");
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : "Session load failed.");
     } finally {
       setSessionBusy(undefined);
       if (importInputRef.current) importInputRef.current.value = "";
@@ -301,7 +305,7 @@ function App() {
                   Chunks
                 </TabButton>
               </nav>
-              <div className="tab-body">
+              <div className="tab-body" ref={tabBodyRef}>
                 {tab === "conversation" && <Conversation request={selected} />}
                 {tab === "exchange" && <ExchangeView request={selected} />}
                 {tab === "raw" && <JsonBlock value={{ request: selected.requestBody, response: selected.responseBody }} />}

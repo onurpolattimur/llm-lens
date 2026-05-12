@@ -13,15 +13,14 @@ export async function exportSessionFile(apiBaseUrl: string, fetchFn: FetchLike, 
 export async function importSessionFile(apiBaseUrl: string, file: Pick<File, "text"> | undefined, fetchFn: FetchLike): Promise<CapturedRequest[] | undefined> {
   if (!file) return undefined;
 
-  const session = JSON.parse(await file.text()) as unknown;
   const response = await fetchFn(`${apiBaseUrl}/api/session/import`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(session)
+    body: await file.text()
   });
-  if (!response.ok) throw new Error("Import failed");
-  const data = (await response.json()) as { requests: CapturedRequest[] };
-  return data.requests;
+  if (!response.ok) throw new Error(await responseErrorMessage(response, "Import failed"));
+  const data = await response.json() as unknown;
+  return isRecord(data) && Array.isArray(data.requests) ? data.requests as CapturedRequest[] : undefined;
 }
 
 export async function clearCapturedRequests(apiBaseUrl: string, fetchFn: FetchLike): Promise<void> {
@@ -41,4 +40,19 @@ export function getFilename(contentDisposition: string | null): string | undefin
 
 export function defaultExportFilename(): string {
   return `llm-lens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+}
+
+async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const value = await response.json() as unknown;
+    if (isRecord(value) && typeof value.message === "string") return value.message;
+    if (isRecord(value) && typeof value.error === "string") return value.error;
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

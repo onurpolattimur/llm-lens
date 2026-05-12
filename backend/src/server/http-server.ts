@@ -8,7 +8,7 @@ import { WebSocketServer } from "ws";
 import type { EventStore } from "./event-store.js";
 import { parseSessionExport } from "./session-import.js";
 
-const SESSION_IMPORT_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
+const SESSION_IMPORT_BODY_LIMIT_BYTES = 100 * 1024 * 1024;
 
 export type InspectorServerOptions = {
   host: string;
@@ -40,7 +40,8 @@ export async function startInspectorServer(options: InspectorServerOptions): Pro
   app.post<{ Body: unknown }>("/api/session/import", async (request, reply) => {
     const session = parseSessionExport(request.body);
     if (!session) return reply.code(400).send({ error: "Invalid session export" });
-    return { requests: options.store.loadSession(session) };
+    const requests = options.store.loadSession(session);
+    return { ok: true, requestCount: requests.length };
   });
   app.get<{ Params: { id: string } }>("/api/requests/:id", async (request, reply) => {
     const captured = options.store.get(request.params.id);

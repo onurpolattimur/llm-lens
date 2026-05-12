@@ -57,6 +57,16 @@ test("imports a session file and returns server-normalized requests", async () =
   assert.equal(fetchCalls[0]?.init?.body, JSON.stringify(session));
 });
 
+test("imports a session file and accepts websocket-driven updates", async () => {
+  const session = { schemaVersion: 1, exportedAt: "2026-05-12T10:00:00.000Z", requests: [capturedRequest({ id: "uploaded" })] };
+  const file = { text: async () => JSON.stringify(session) };
+  const fetchFn = async () => Response.json({ ok: true, requestCount: 1 });
+
+  const result = await importSessionFile("http://127.0.0.1:9292", file, fetchFn);
+
+  assert.equal(result, undefined);
+});
+
 test("returns undefined and skips fetch when no import file is selected", async () => {
   let called = false;
   const fetchFn = async () => {
@@ -70,10 +80,18 @@ test("returns undefined and skips fetch when no import file is selected", async 
 
 test("throws when session import fails or contains invalid JSON", async () => {
   await assert.rejects(
-    () => importSessionFile("http://api", { text: async () => JSON.stringify({ schemaVersion: 1 }) }, async () => new Response("fail", { status: 400 })),
-    /Import failed/
+    () =>
+      importSessionFile(
+        "http://api",
+        { text: async () => JSON.stringify({ schemaVersion: 1 }) },
+        async () => Response.json({ message: "Invalid session export" }, { status: 400 })
+      ),
+    /Invalid session export/
   );
-  await assert.rejects(() => importSessionFile("http://api", { text: async () => "not-json" }, async () => Response.json({})), SyntaxError);
+  await assert.rejects(
+    () => importSessionFile("http://api", { text: async () => "not-json" }, async () => Response.json({ message: "Invalid JSON" }, { status: 400 })),
+    /Invalid JSON/
+  );
 });
 
 test("clears all captured requests with DELETE", async () => {
