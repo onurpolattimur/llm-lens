@@ -1,6 +1,6 @@
 {
   "name": "llm-lens",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Local debugging proxy and web UI for inspecting LLM API traffic.",
   "private": false,
   "type": "module",
