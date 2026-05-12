@@ -9,6 +9,7 @@ import { parseProviderHosts } from "@llm-lens/shared";
 import { EventStore } from "../server/event-store.js";
 import { startInspectorServer, startInspectorUiServer } from "../server/http-server.js";
 import { startCaptureProxy } from "../proxy/capture-proxy.js";
+import { createSessionLogFile, logger, routeLogsToFile, routeLogsToTerminal } from "../logger.js";
 import {
   ensureCertificate,
   installCertificateTrust,
@@ -33,6 +34,7 @@ type InspectorOptions = {
   host: string;
   additionalProviderUrls: string;
   uiServer: boolean;
+  verbose: boolean;
 };
 
 type CloseHandle = {
@@ -72,6 +74,7 @@ addInspectorOptions(program)
 
 addInspectorOptions(program.command("start").description("start the proxy, API, and web UI"))
   .action(async (options: InspectorOptions) => {
+    routeLogsToTerminal({ debugToTerminal: options.verbose });
     const runtime = await startInspector(options);
     printInspectorStarted(runtime);
     openBrowserIfUiIsAvailable(runtime);
@@ -82,6 +85,10 @@ addInspectorOptions(program.command("start").description("start the proxy, API, 
     console.log("  export NO_PROXY=localhost,127.0.0.1");
     console.log(`  export NODE_EXTRA_CA_CERTS="${runtime.caPath}"`);
     console.log(`  export SSL_CERT_FILE="${runtime.caPath}"`);
+    if (options.verbose) {
+      console.log("");
+      console.log("Verbose logging enabled.");
+    }
   });
 
 addInspectorOptions(program.command("run").description("start the inspector and run an agent command"))
@@ -116,6 +123,7 @@ function addInspectorOptions(command: Command): Command {
     .option("--ui-port <port>", "web UI port", envValue("LLM_LENS_UI_PORT", DEFAULT_UI_PORT))
     .option("--host <host>", "bind host", envValue("LLM_LENS_HOST", DEFAULT_HOST))
     .option("--additional-provider-urls <urls>", "extra provider hosts or URLs to capture", envValue(ADDITIONAL_PROVIDER_URLS_ENV, ""))
+    .option("--verbose", "mirror background runtime logs to the terminal while running an agent", envFlag("LLM_LENS_VERBOSE"))
     .option("--no-ui-server", "do not serve the built web UI");
 }
 
@@ -179,15 +187,28 @@ async function runAgentCommand(agentCommand: string, agentArgs: string[], option
   openBrowserIfUiIsAvailable(runtime);
 
   const normalizedArgs = normalizeAgentArgs(agentArgs);
+  const logFile = createSessionLogFile();
   console.log("");
   console.log(`Running through proxy: ${[agentCommand, ...normalizedArgs].join(" ")}`);
+  console.log(`LLM Lens background log: ${logFile}`);
+  if (options.verbose) {
+    console.log("Verbose mode: background logs will also be printed here.");
+  }
   console.log("");
 
   try {
+    routeLogsToFile(logFile, { mirrorToTerminal: options.verbose });
+    logger.info("Running through proxy: %s", [agentCommand, ...normalizedArgs].join(" "));
+    logger.info("Proxy: %s", runtime.proxyUrl);
+    logger.info("API/WebSocket: %s", runtime.apiBaseUrl);
+    logger.info("Web UI: %s", runtime.uiServerStarted ? runtime.uiUrl : "not served");
     const result = await spawnAgent(agentCommand, normalizedArgs, runtime);
+    routeLogsToTerminal();
     process.exitCode = result.signal ? signalExitCode(result.signal) : result.code ?? 1;
   } catch (error) {
-    console.error(`Failed to start ${agentCommand}: ${errorMessage(error)}`);
+    routeLogsToTerminal();
+    logger.error(`Failed to start ${agentCommand}: ${errorMessage(error)}`);
+    logger.error(`LLM Lens background log: ${logFile}`);
     process.exitCode = 1;
   } finally {
     await runtime.close();
@@ -286,6 +307,11 @@ function errorMessage(error: unknown): string {
 
 function envValue(key: string, fallback: string): string {
   return process.env[key] || fallback;
+}
+
+function envFlag(key: string): boolean {
+  const value = process.env[key];
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function loadEnvFiles(): void {

@@ -1,3 +1,5 @@
+import { logger } from "../logger.js";
+
 const BENIGN_ERROR_KINDS = new Set([
   "HTTPS_CLIENT_ERROR",
   "CLIENT_TO_PROXY_SOCKET_ERROR",
@@ -11,17 +13,14 @@ export function installProxyLogFilter(): void {
   if (installed) return;
   installed = true;
 
-  const originalError = console.error.bind(console);
-  const originalDebug = console.debug.bind(console);
-
   console.debug = (...args: unknown[]) => {
     if (args.some((arg) => typeof arg === "string" && arg.startsWith("Got ECONNRESET on "))) return;
-    originalDebug(...args);
+    logger.debug(...args);
   };
 
   console.error = (...args: unknown[]) => {
     if (args.length === 1 && isBenignProxyLog(args[0])) return;
-    originalError(...args);
+    logger.error(...args);
   };
 }
 
@@ -41,4 +40,3 @@ function isBenignSocketError(value: unknown): boolean {
   const error = value as NodeJS.ErrnoException;
   return error.code === "ECONNRESET" || error.message === "socket hang up";
 }
-

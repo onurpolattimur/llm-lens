@@ -104,6 +104,16 @@ npx llm-lens opencode
 npx llm-lens claude
 ```
 
+When LLM Lens launches an interactive agent, the agent owns the terminal after
+startup. Background proxy and inspector logs are written to a session log under
+`$HOME/.llm-lens/logs` so they do not overwrite terminal UIs such as opencode.
+Use `--verbose` or `LLM_LENS_VERBOSE=1` to also mirror those background logs to
+the terminal:
+
+```sh
+npx llm-lens --verbose opencode
+```
+
 Put LLM Lens options before the agent command. Arguments after the agent
 command are passed to the agent:
 
@@ -163,6 +173,7 @@ LLM_LENS_UI_PORT=5270
 LLM_LENS_HOST=127.0.0.1
 LLM_LENS_HOME="$HOME/.llm-lens"
 LLM_LENS_ADDITIONAL_PROVIDER_URLS=api.example.com,llm.internal.test
+LLM_LENS_VERBOSE=0
 ```
 
 `LLM_LENS_ADDITIONAL_PROVIDER_URLS` accepts comma-separated or

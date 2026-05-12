@@ -12,6 +12,7 @@ import { normalizeTrace, parseJsonBody, parseSseChunks } from "@llm-lens/shared/
 import { redactHeaders } from "@llm-lens/shared/redaction";
 import type { EventStore } from "../server/event-store.js";
 import { certRootDir } from "../cert/paths.js";
+import { logger } from "../logger.js";
 import { installProxyLogFilter, isBenignProxyError } from "./proxy-log-filter.js";
 
 const MAX_CAPTURE_BYTES = 10 * 1024 * 1024;
@@ -41,7 +42,7 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
     if (isBenignProxyError(kind, err)) return;
     const id = getState(ctx)?.id;
     if (id) options.store.update(id, { error: `${kind ?? "proxy"}: ${err?.message ?? "unknown error"}` });
-    else console.error("proxy error:", kind, err);
+    else logger.error("proxy error:", kind, err);
   });
 
   proxy.onConnect((req, socket, head, callback) => {
@@ -62,11 +63,11 @@ export async function startCaptureProxy(options: CaptureProxyOptions): Promise<{
       });
     });
     conn.on("error", (error) => {
-      console.error("proxy tunnel error:", error);
+      logger.error("proxy tunnel error:", error);
       socket.destroy();
     });
     socket.on("error", (error) => {
-      console.error("proxy tunnel socket error:", error);
+      logger.error("proxy tunnel socket error:", error);
     });
   });
 
